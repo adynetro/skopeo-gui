@@ -162,3 +162,44 @@ export interface LogEntry {
   message: string;
   taskId?: string;
 }
+
+export interface CosignKeyPair {
+  id: string;
+  name: string;
+  publicKey: string; // PEM format
+  privateKey?: string; // PEM format (encrypted in vault)
+  algorithm: 'ECDSA_P256' | 'ED25519';
+  createdAt: string;
+}
+
+export interface CosignVerificationResult {
+  verified: boolean;
+  imageRef: string;
+  digest: string;
+  signatureTag?: string;
+  signedAt?: string;
+  signerIdentity?: string;
+  issuer?: string;
+  algorithm?: string;
+  payload?: any;
+  rawSignature?: string;
+  certificateDetails?: {
+    subject?: string;
+    issuer?: string;
+    validFrom?: string;
+    validTo?: string;
+    sanList?: string[];
+  };
+  error?: string;
+}
+
+export interface CosignSignResult {
+  success: boolean;
+  imageRef: string;
+  digest: string;
+  signatureTag: string;
+  signedAt: string;
+  keyId?: string;
+  error?: string;
+}
+

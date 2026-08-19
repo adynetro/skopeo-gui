@@ -34,7 +34,17 @@ Seamlessly **batch-migrate container images** across registries (Oracle Cloud OC
 
 ---
 
-### 2. 📦 Security & SBOM Inspector (SPDX, CycloneDX & Cosign)
+### 2. ✍️ Cosign Signing, Verification & Key Vault
+- **Native Zero-Binary Signing**: Sign any remote container image digest without pulling full images, using Node.js built-in `crypto` engine.
+- **Sigstore OCI Standard**: Pushes standard `sha256-<digest>.sig` simple signing artifacts compatible with official `cosign verify`.
+- **Key Pair Management**: 1-click generation of **ECDSA P-256** and **Ed25519** key pairs stored securely in the encrypted macOS machine vault.
+- **Custom Claims & Annotations**: Add metadata (e.g. `git-sha`, `build-id`, `release-env`, `author`) to signatures.
+- **Cryptographic Verification**: Verify signatures against stored keys, custom PEM public keys, or structural/Keyless payload claims.
+- **Export & Download**: Export `cosign.pub` and `cosign.key` files for CI/CD pipelines.
+
+---
+
+### 3. 📦 Security & SBOM Inspector (SPDX, CycloneDX & Cosign)
 - **SBOM Detection**: Discovers detached OCI SBOM artifacts (`.sbom` tags), inline SPDX / CycloneDX metadata, and container label definitions.
 - **Supply Chain Cryptographic Verification**: Probes for **Cosign signatures** (`.sig` tags) and SLSA / in-toto **attestations** (`.att` tags).
 - **Package Inventory Browser**: Inspect all installed packages, licenses, suppliers, and Package URLs (PURLs).
@@ -137,6 +147,7 @@ skopeo-gui/
 │   ├── main/
 │   │   ├── index.ts                # Electron main entry & IPC handlers
 │   │   ├── skopeo.ts               # Skopeo CLI wrapper service (multi-arch, SBOM, copy, delete)
+│   │   ├── cosign.ts               # Native Cosign signing & verification service
 │   │   ├── vulnerabilityScanner.ts # OSV.dev batch vulnerability scanner
 │   │   ├── credentials.ts          # Encrypted credential storage service
 │   │   └── batchRunner.ts          # Concurrent worker pool for batch transfers
@@ -145,6 +156,7 @@ skopeo-gui/
 │   ├── renderer/
 │   │   ├── src/
 │   │   │   ├── components/
+│   │   │   │   ├── CosignManager.tsx      # Cosign image signing, verify & key vault UI
 │   │   │   │   ├── SbomInspector.tsx      # Security, SBOM & CVE scanner UI
 │   │   │   │   ├── ImageInspector.tsx     # Image, multi-arch & tag inspector
 │   │   │   │   ├── BatchTransfer.tsx      # Multi-image & tag batch transfer UI
