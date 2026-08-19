@@ -51,6 +51,40 @@ export interface SbomPackage {
   purl?: string;
 }
 
+export interface PackageVulnerability {
+  id: string; // e.g. "CVE-2025-27516" or "GHSA-cpwx-vrp4-4pq7"
+  aliases: string[]; // ["CVE-2025-27516"]
+  packageName: string;
+  packageVersion: string;
+  packageType: string;
+  severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | 'UNKNOWN';
+  score?: string; // CVSS score
+  summary: string;
+  details?: string;
+  fixedVersion?: string;
+  referenceUrls?: string[];
+  published?: string;
+}
+
+export interface VulnerabilitySummary {
+  total: number;
+  critical: number;
+  high: number;
+  medium: number;
+  low: number;
+  unknown: number;
+}
+
+export interface VulnerabilityScanResult {
+  imageRef: string;
+  scannedAt: string;
+  scannedPackagesCount: number;
+  summary: VulnerabilitySummary;
+  vulnerabilities: PackageVulnerability[];
+  scannerEngine: string;
+  error?: string;
+}
+
 export interface SbomInspection {
   imageRef: string;
   digest?: string;
@@ -68,6 +102,7 @@ export interface SbomInspection {
   sbomArtifactTag?: string;
   hasAttestation: boolean;
   rawJSON?: any;
+  vulnerabilityScan?: VulnerabilityScanResult;
   error?: string;
 }
 
