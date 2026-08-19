@@ -39,6 +39,7 @@
     "appId": "ro.chiscari.skopeo-gui",
     "productName": "Skopeo GUI",
     "mac": {
+      "icon": "build/icon.icns",
       "target": [
         {
           "target": "dmg",

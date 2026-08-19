@@ -20,10 +20,15 @@ export const TitleBar: React.FC<Props> = ({
   return (
     <header className="titlebar-drag-region h-12 bg-[#121224]/80 backdrop-blur-md border-b border-white/[0.08] flex items-center justify-between px-4 pl-20 select-none z-30 flex-shrink-0">
       <div className="flex items-center gap-3">
-        <div className="flex items-center gap-2">
-          <div className="w-5 h-5 rounded bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center font-bold text-black text-xs shadow-[0_0_10px_rgba(251,191,36,0.3)]">
-            S
-          </div>
+        <div className="flex items-center gap-2.5">
+          <img
+            src="./icon.png"
+            alt="Skopeo GUI"
+            className="w-5 h-5 rounded object-cover shadow-[0_0_10px_rgba(251,191,36,0.3)] border border-amber-500/30"
+            onError={(e) => {
+              (e.target as HTMLElement).style.display = 'none';
+            }}
+          />
           <span className="font-bold text-sm text-white tracking-wide">Skopeo GUI</span>
           <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/10 text-white/70 font-mono">Apple Silicon</span>
         </div>
