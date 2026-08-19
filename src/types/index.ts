@@ -36,6 +36,32 @@ export interface ImageInspection {
   RawJSON?: any;
 }
 
+export interface SbomPackage {
+  name: string;
+  version: string;
+  type: string; // 'apk' | 'deb' | 'rpm' | 'npm' | 'pypi' | 'golang' | 'cargo' | 'os' | 'library'
+  license?: string;
+  supplier?: string;
+  purl?: string;
+}
+
+export interface SbomInspection {
+  imageRef: string;
+  digest?: string;
+  format: 'SPDX' | 'CycloneDX' | 'Cosign-Attestation' | 'Labels' | 'None';
+  specVersion?: string;
+  creationTimestamp?: string;
+  tool?: string;
+  packages: SbomPackage[];
+  hasCosignSignature: boolean;
+  cosignSignatureTag?: string;
+  hasSbomArtifact: boolean;
+  sbomArtifactTag?: string;
+  hasAttestation: boolean;
+  rawJSON?: any;
+  error?: string;
+}
+
 export type TransportType = 'docker' | 'oci' | 'oci-archive' | 'dir' | 'docker-archive' | 'docker-daemon';
 
 export interface BatchItem {
@@ -66,7 +92,7 @@ export interface BatchMigrationConfig {
   srcTransport: TransportType;
   destTransport: TransportType;
   srcRepo?: string;
-  destRepo?: string; // Can be full destination repo or a destination namespace/prefix e.g. "fra.ocir.io/tenancy/mirror"
+  destRepo?: string;
   selectedTags?: string[];
   imagesList?: ImageTransferPair[];
   copyAllArchitectures: boolean; // --all

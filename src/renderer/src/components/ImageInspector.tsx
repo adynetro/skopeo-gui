@@ -10,6 +10,9 @@ import {
   CheckCircle2,
   Copy,
   ExternalLink,
+  Trash2,
+  AlertTriangle,
+  RefreshCw,
 } from 'lucide-react';
 import { ImageInspection, RegistryCredential } from '../../../types';
 
@@ -27,7 +30,11 @@ export const ImageInspector: React.FC<Props> = ({
   const [insecure, setInsecure] = useState(false);
   const [isInspecting, setIsInspecting] = useState(false);
   const [inspection, setInspection] = useState<ImageInspection | null>(null);
-  const [activeTab, setActiveTab] = useState<'overview' | 'layers' | 'raw'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'layers' | 'env' | 'labels' | 'tags' | 'raw'>('overview');
+  const [tags, setTags] = useState<string[]>([]);
+  const [isFetchingTags, setIsFetchingTags] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [tagFilter, setTagFilter] = useState('');
 
   const handleInspect = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -38,6 +45,7 @@ export const ImageInspector: React.FC<Props> = ({
 
     setIsInspecting(true);
     setInspection(null);
+    setTags([]);
 
     try {
       const fullRef = imageRef.includes('://') ? imageRef.trim() : `docker://${imageRef.trim()}`;
@@ -55,10 +63,48 @@ export const ImageInspector: React.FC<Props> = ({
     }
   };
 
+  const handleFetchTags = async () => {
+    if (!imageRef.trim()) return;
+    setIsFetchingTags(true);
+    try {
+      const cleanRef = imageRef.trim().replace(/^([a-z-]+:\/\/)/, '');
+      const repoBase = cleanRef.includes(':') ? cleanRef.split(':')[0] : cleanRef.split('@')[0];
+      const fullRef = `docker://${repoBase}`;
+      const result = await (window as any).skopeoApi.listTags(fullRef, credId || undefined, insecure);
+      setTags(result);
+      setActiveTab('tags');
+      onShowToast(`Discovered ${result.length} tags`, true);
+    } catch (err: any) {
+      onShowToast(err.message || 'Failed to list tags', false);
+    } finally {
+      setIsFetchingTags(false);
+    }
+  };
+
+  const handleDeleteImage = async () => {
+    if (!imageRef.trim()) return;
+    if (!confirm(`Are you sure you want to delete "${imageRef}" from the remote registry? This action cannot be undone.`)) return;
+
+    setIsDeleting(true);
+    try {
+      const fullRef = imageRef.includes('://') ? imageRef.trim() : `docker://${imageRef.trim()}`;
+      await (window as any).skopeoApi.deleteImage(fullRef, credId || undefined, insecure);
+      onShowToast('Image deleted successfully from registry.', true);
+    } catch (err: any) {
+      onShowToast(err.message || 'Delete failed', false);
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
     onShowToast('Copied to clipboard!', true);
   };
+
+  const filteredTags = tagFilter
+    ? tags.filter((t) => t.toLowerCase().includes(tagFilter.toLowerCase()))
+    : tags;
 
   return (
     <div className="flex-1 flex flex-col overflow-y-auto p-6 space-y-6">
@@ -69,7 +115,7 @@ export const ImageInspector: React.FC<Props> = ({
             Image & Manifest Inspector
           </h1>
           <p className="text-xs text-slate-400 mt-1">
-            Inspect remote container images without pulling them. View layers, architectures, digests, and environment variables.
+            Inspect remote container images without pulling them. View layers, architectures, digests, environment variables, labels, and tags.
           </p>
         </div>
       </div>
@@ -110,7 +156,7 @@ export const ImageInspector: React.FC<Props> = ({
           </div>
         </div>
 
-        <div className="flex items-center justify-between pt-1">
+        <div className="flex items-center justify-between pt-1 flex-wrap gap-2">
           <label className="flex items-center gap-2 cursor-pointer text-xs">
             <input
               type="checkbox"
@@ -121,14 +167,37 @@ export const ImageInspector: React.FC<Props> = ({
             <span className="text-slate-300">Allow Insecure TLS (--tls-verify=false)</span>
           </label>
 
-          <button
-            type="submit"
-            disabled={isInspecting || !imageRef.trim()}
-            className="flex items-center gap-1.5 px-5 py-2 rounded-lg text-xs font-bold bg-amber-500 text-black hover:bg-amber-400 disabled:opacity-50 transition-colors shadow-[0_0_12px_rgba(251,191,36,0.25)]"
-          >
-            <Search className="w-4 h-4" />
-            <span>{isInspecting ? 'Inspecting...' : 'Inspect Image'}</span>
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleFetchTags}
+              disabled={isFetchingTags || !imageRef.trim()}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold bg-white/5 border border-white/10 text-slate-200 hover:bg-white/10 hover:text-white disabled:opacity-40 transition-colors"
+            >
+              <Tag className="w-3.5 h-3.5 text-amber-400" />
+              <span>{isFetchingTags ? 'Listing...' : 'List Tags'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleDeleteImage}
+              disabled={isDeleting || !imageRef.trim()}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold bg-rose-500/10 border border-rose-500/20 text-rose-400 hover:bg-rose-500/20 disabled:opacity-40 transition-colors"
+              title="Delete image from remote registry"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>{isDeleting ? 'Deleting...' : 'Delete'}</span>
+            </button>
+
+            <button
+              type="submit"
+              disabled={isInspecting || !imageRef.trim()}
+              className="flex items-center gap-1.5 px-5 py-2 rounded-lg text-xs font-bold bg-amber-500 text-black hover:bg-amber-400 disabled:opacity-50 transition-colors shadow-[0_0_12px_rgba(251,191,36,0.25)]"
+            >
+              <Search className="w-4 h-4" />
+              <span>{isInspecting ? 'Inspecting...' : 'Inspect Image'}</span>
+            </button>
+          </div>
         </div>
       </form>
 
@@ -155,37 +224,30 @@ export const ImageInspector: React.FC<Props> = ({
               )}
             </div>
 
-            <div className="flex items-center gap-1 bg-[#0a0a14] p-1 rounded-lg border border-white/5">
-              <button
-                onClick={() => setActiveTab('overview')}
-                className={`px-3 py-1 rounded text-xs font-semibold transition-colors ${
-                  activeTab === 'overview'
-                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                Overview
-              </button>
-              <button
-                onClick={() => setActiveTab('layers')}
-                className={`px-3 py-1 rounded text-xs font-semibold transition-colors ${
-                  activeTab === 'layers'
-                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                Layers ({inspection.Layers?.length || 0})
-              </button>
-              <button
-                onClick={() => setActiveTab('raw')}
-                className={`px-3 py-1 rounded text-xs font-semibold transition-colors ${
-                  activeTab === 'raw'
-                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                Raw JSON
-              </button>
+            <div className="flex items-center gap-1 bg-[#0a0a14] p-1 rounded-lg border border-white/5 flex-wrap">
+              {(['overview', 'layers', 'env', 'labels', 'tags', 'raw'] as const).map((tab) => {
+                const labelMap = {
+                  overview: 'Overview',
+                  layers: `Layers (${inspection.Layers?.length || 0})`,
+                  env: `Env (${inspection.Env?.length || 0})`,
+                  labels: `Labels (${Object.keys(inspection.Labels || {}).length})`,
+                  tags: `Tags (${tags.length})`,
+                  raw: 'Raw JSON',
+                };
+                return (
+                  <button
+                    key={tab}
+                    onClick={() => setActiveTab(tab)}
+                    className={`px-3 py-1 rounded text-xs font-semibold transition-colors ${
+                      activeTab === tab
+                        ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    {labelMap[tab]}
+                  </button>
+                );
+              })}
             </div>
           </div>
 
@@ -220,6 +282,14 @@ export const ImageInspector: React.FC<Props> = ({
                   </div>
                 </div>
               </div>
+
+              {/* Manifest Type */}
+              {inspection.ManifestType && (
+                <div className="p-3 rounded-lg bg-[#0a0a14] border border-white/5">
+                  <div className="text-[10px] text-slate-400 uppercase font-bold">Manifest Type</div>
+                  <div className="text-xs font-mono text-amber-300 mt-1">{inspection.ManifestType}</div>
+                </div>
+              )}
 
               {/* Tags */}
               {inspection.RepoTags && inspection.RepoTags.length > 0 && (
@@ -270,6 +340,119 @@ export const ImageInspector: React.FC<Props> = ({
             </div>
           )}
 
+          {activeTab === 'env' && (
+            <div className="space-y-2">
+              <div className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                Environment Variables ({inspection.Env?.length || 0})
+              </div>
+              <div className="space-y-1.5 max-h-80 overflow-y-auto">
+                {(inspection.Env || []).length === 0 ? (
+                  <div className="text-xs text-slate-500 italic p-3">No environment variables found.</div>
+                ) : (
+                  (inspection.Env || []).map((envVar, index) => {
+                    const eqIdx = envVar.indexOf('=');
+                    const key = eqIdx >= 0 ? envVar.substring(0, eqIdx) : envVar;
+                    const val = eqIdx >= 0 ? envVar.substring(eqIdx + 1) : '';
+                    return (
+                      <div
+                        key={index}
+                        className="p-2.5 rounded-lg bg-[#0a0a14] border border-white/5 flex items-start justify-between text-xs font-mono gap-2"
+                      >
+                        <div className="flex-1 min-w-0">
+                          <span className="text-cyan-400 font-bold">{key}</span>
+                          <span className="text-slate-500">=</span>
+                          <span className="text-slate-300 break-all">{val}</span>
+                        </div>
+                        <button
+                          onClick={() => copyToClipboard(envVar)}
+                          className="p-1 hover:bg-white/10 rounded text-slate-400 hover:text-white flex-shrink-0"
+                        >
+                          <Copy className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'labels' && (
+            <div className="space-y-2">
+              <div className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                Image Labels ({Object.keys(inspection.Labels || {}).length})
+              </div>
+              <div className="space-y-1.5 max-h-80 overflow-y-auto">
+                {Object.keys(inspection.Labels || {}).length === 0 ? (
+                  <div className="text-xs text-slate-500 italic p-3">No labels found.</div>
+                ) : (
+                  Object.entries(inspection.Labels || {}).map(([key, value]) => (
+                    <div
+                      key={key}
+                      className="p-2.5 rounded-lg bg-[#0a0a14] border border-white/5 flex items-start justify-between text-xs font-mono gap-2"
+                    >
+                      <div className="flex-1 min-w-0">
+                        <div className="text-purple-400 font-bold break-all">{key}</div>
+                        <div className="text-slate-300 break-all mt-0.5">{value}</div>
+                      </div>
+                      <button
+                        onClick={() => copyToClipboard(`${key}=${value}`)}
+                        className="p-1 hover:bg-white/10 rounded text-slate-400 hover:text-white flex-shrink-0"
+                      >
+                        <Copy className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'tags' && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                  Repository Tags ({filteredTags.length}{tagFilter ? ` / ${tags.length}` : ''})
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    placeholder="Filter tags..."
+                    value={tagFilter}
+                    onChange={(e) => setTagFilter(e.target.value)}
+                    className="px-2.5 py-1.5 rounded-lg bg-[#0a0a14] border border-white/10 text-white text-xs font-mono w-48 focus:border-amber-400 focus:outline-none"
+                  />
+                  <button
+                    onClick={handleFetchTags}
+                    disabled={isFetchingTags}
+                    className="p-1.5 rounded-lg bg-white/5 border border-white/10 text-slate-400 hover:text-white disabled:opacity-40"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${isFetchingTags ? 'animate-spin' : ''}`} />
+                  </button>
+                </div>
+              </div>
+
+              {tags.length === 0 ? (
+                <div className="text-xs text-slate-500 italic p-3 text-center">
+                  Click "List Tags" to discover all published tags for this repository.
+                </div>
+              ) : (
+                <div className="flex flex-wrap gap-1.5 max-h-64 overflow-y-auto p-2 rounded-lg bg-[#0a0a14] border border-white/5">
+                  {filteredTags.map((tag) => (
+                    <button
+                      key={tag}
+                      onClick={() => copyToClipboard(tag)}
+                      className="px-2 py-0.5 rounded text-[11px] font-mono bg-white/5 border border-white/10 text-slate-300 hover:bg-amber-500/10 hover:border-amber-500/30 hover:text-amber-300 transition-colors"
+                      title={`Click to copy: ${tag}`}
+                    >
+                      {tag}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           {activeTab === 'raw' && (
             <pre className="p-4 rounded-lg bg-[#0a0a14] border border-white/5 text-[11px] font-mono text-emerald-400 overflow-x-auto max-h-96">
               {JSON.stringify(inspection.RawJSON || inspection, null, 2)}
@@ -280,3 +463,4 @@ export const ImageInspector: React.FC<Props> = ({
     </div>
   );
 };
+
