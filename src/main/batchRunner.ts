@@ -45,20 +45,57 @@ export class BatchRunner {
     const srcCred = config.srcRegistryId ? allCreds.find((c) => c.id === config.srcRegistryId) : undefined;
     const destCred = config.destRegistryId ? allCreds.find((c) => c.id === config.destRegistryId) : undefined;
 
-    // Create item tasks
-    this.items = config.selectedTags.map((tag) => {
-      const srcRef = this.skopeo.formatImageUri(config.srcTransport, `${config.srcRepo}:${tag}`);
-      const destRef = this.skopeo.formatImageUri(config.destTransport, `${config.destRepo}:${tag}`);
-      return {
-        id: `task-${tag}-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`,
-        srcReference: srcRef,
-        destReference: destRef,
-        tag,
-        status: 'pending',
-        progress: 0,
-        logs: [],
-      };
-    });
+    // Create item tasks depending on mode
+    if (config.mode === 'multi-images' && config.imagesList && config.imagesList.length > 0) {
+      this.items = config.imagesList.map((pair, index) => {
+        const rawSrc = pair.src.trim();
+        const srcRef = this.skopeo.formatImageUri(config.srcTransport, rawSrc);
+
+        let rawDest = pair.dest?.trim() || '';
+        if (!rawDest) {
+          // If no custom destination was specified, derive it from destRepo prefix
+          // e.g. destRepo = "docker.io/myorg", src = "docker.io/library/redis:alpine" -> "docker.io/myorg/redis:alpine"
+          const imgClean = rawSrc.replace(/^([a-z-]+:\/\/)/, '');
+          const imgParts = imgClean.split('/');
+          const lastPart = imgParts[imgParts.length - 1]; // "redis:alpine"
+          const destPrefix = (config.destRepo || '').replace(/\/+$/, '');
+          rawDest = destPrefix ? `${destPrefix}/${lastPart}` : lastPart;
+        }
+
+        const destRef = this.skopeo.formatImageUri(config.destTransport, rawDest);
+        const tagMatch = rawSrc.match(/:([^/:]+)$/);
+        const tag = tagMatch ? tagMatch[1] : 'latest';
+        const imageName = rawSrc.replace(/^([a-z-]+:\/\/)/, '').replace(/:[^/:]+$/, '');
+
+        return {
+          id: `task-img-${index}-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`,
+          srcReference: srcRef,
+          destReference: destRef,
+          tag,
+          imageName,
+          status: 'pending',
+          progress: 0,
+          logs: [],
+        };
+      });
+    } else {
+      // Tags mode (single repo, multiple tags)
+      const selectedTags = config.selectedTags || ['latest'];
+      this.items = selectedTags.map((tag) => {
+        const srcRef = this.skopeo.formatImageUri(config.srcTransport, `${config.srcRepo || ''}:${tag}`);
+        const destRef = this.skopeo.formatImageUri(config.destTransport, `${config.destRepo || ''}:${tag}`);
+        return {
+          id: `task-${tag}-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`,
+          srcReference: srcRef,
+          destReference: destRef,
+          tag,
+          imageName: config.srcRepo,
+          status: 'pending',
+          progress: 0,
+          logs: [],
+        };
+      });
+    }
 
     const sendUpdate = (item: BatchItem) => {
       if (!window.isDestroyed()) {
@@ -126,16 +163,16 @@ export class BatchRunner {
           item.completedAt = new Date().toISOString();
           item.durationMs = Date.now() - startTime;
           sendUpdate(item);
-          emitLog(item.id, `Successfully copied tag [${item.tag}] in ${((item.durationMs || 0) / 1000).toFixed(1)}s`, 'success');
+          emitLog(item.id, `Successfully copied [${item.imageName || ''}:${item.tag}] in ${((item.durationMs || 0) / 1000).toFixed(1)}s`, 'success');
         } catch (err: any) {
           if (this.currentAbortController?.signal.aborted) {
             item.status = 'cancelled';
             item.error = 'Cancelled by user';
-            emitLog(item.id, `Cancelled copy for tag [${item.tag}]`, 'warn');
+            emitLog(item.id, `Cancelled copy for [${item.imageName || ''}:${item.tag}]`, 'warn');
           } else {
             item.status = 'failed';
             item.error = err.message || String(err);
-            emitLog(item.id, `Failed copying tag [${item.tag}]: ${item.error}`, 'error');
+            emitLog(item.id, `Failed copying [${item.imageName || ''}:${item.tag}]: ${item.error}`, 'error');
           }
           sendUpdate(item);
         }

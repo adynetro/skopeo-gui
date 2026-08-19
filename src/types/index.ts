@@ -43,6 +43,7 @@ export interface BatchItem {
   srcReference: string;
   destReference: string;
   tag: string;
+  imageName?: string;
   status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
   progress: number;
   logs: string[];
@@ -52,15 +53,22 @@ export interface BatchItem {
   durationMs?: number;
 }
 
+export interface ImageTransferPair {
+  src: string;
+  dest?: string;
+}
+
 export interface BatchMigrationConfig {
   name: string;
+  mode: 'tags' | 'multi-images';
   srcRegistryId?: string;
   destRegistryId?: string;
   srcTransport: TransportType;
   destTransport: TransportType;
-  srcRepo: string;
-  destRepo: string;
-  selectedTags: string[];
+  srcRepo?: string;
+  destRepo?: string; // Can be full destination repo or a destination namespace/prefix e.g. "fra.ocir.io/tenancy/mirror"
+  selectedTags?: string[];
+  imagesList?: ImageTransferPair[];
   copyAllArchitectures: boolean; // --all
   srcInsecure: boolean;
   destInsecure: boolean;
