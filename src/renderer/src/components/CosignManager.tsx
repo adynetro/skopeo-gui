@@ -20,6 +20,7 @@ import {
   EyeOff,
   Check,
   Zap,
+  Monitor,
 } from 'lucide-react';
 import { CosignKeyPair, CosignSignResult, CosignVerificationResult, RegistryCredential } from '../../../types';
 
@@ -27,6 +28,17 @@ interface Props {
   credentials: RegistryCredential[];
   onShowToast: (msg: string, success: boolean) => void;
 }
+
+const PLATFORM_PRESETS = [
+  { label: 'linux/amd64 (Linux x86_64 / Servers)', os: 'linux', arch: 'amd64' },
+  { label: 'linux/arm64 (Apple Silicon Mac / ARM64)', os: 'linux', arch: 'arm64' },
+  { label: 'linux/arm/v7 (ARM 32-bit / IoT)', os: 'linux', arch: 'arm', variant: 'v7' },
+  { label: 'linux/ppc64le (PowerPC 64-bit)', os: 'linux', arch: 'ppc64le' },
+  { label: 'linux/s390x (IBM Z / Mainframe)', os: 'linux', arch: 's390x' },
+  { label: 'linux/riscv64 (RISC-V 64-bit)', os: 'linux', arch: 'riscv64' },
+  { label: 'windows/amd64 (Windows Container)', os: 'windows', arch: 'amd64' },
+  { label: '(Multi-Arch Root Index / Auto)', os: '', arch: '' },
+];
 
 export const CosignManager: React.FC<Props> = ({ credentials, onShowToast }) => {
   const [activeSubTab, setActiveSubTab] = useState<'verify' | 'sign' | 'keys'>('verify');
@@ -37,6 +49,7 @@ export const CosignManager: React.FC<Props> = ({ credentials, onShowToast }) => 
   const [verifyImageRef, setVerifyImageRef] = useState('');
   const [verifyCredId, setVerifyCredId] = useState('');
   const [verifyInsecure, setVerifyInsecure] = useState(false);
+  const [verifyPlatformIndex, setVerifyPlatformIndex] = useState(0); // default linux/amd64
   const [verifyKeyMode, setVerifyKeyMode] = useState<'vault' | 'custom' | 'keyless'>('vault');
   const [selectedVerifyKeyId, setSelectedVerifyKeyId] = useState('');
   const [customPublicKey, setCustomPublicKey] = useState('');
@@ -47,6 +60,7 @@ export const CosignManager: React.FC<Props> = ({ credentials, onShowToast }) => 
   const [signImageRef, setSignImageRef] = useState('');
   const [signCredId, setSignCredId] = useState('');
   const [signInsecure, setSignInsecure] = useState(false);
+  const [signPlatformIndex, setSignPlatformIndex] = useState(0); // default linux/amd64
   const [signKeyMode, setSignKeyMode] = useState<'vault' | 'custom'>('vault');
   const [selectedSignKeyId, setSelectedSignKeyId] = useState('');
   const [customPrivateKey, setCustomPrivateKey] = useState('');
@@ -102,16 +116,22 @@ export const CosignManager: React.FC<Props> = ({ credentials, onShowToast }) => 
       pubKeyToUse = customPublicKey;
     }
 
+    const currentPreset = PLATFORM_PRESETS[verifyPlatformIndex];
+    const platformToUse = currentPreset.os && currentPreset.arch
+      ? { os: currentPreset.os, arch: currentPreset.arch, variant: currentPreset.variant }
+      : undefined;
+
     try {
       const result: CosignVerificationResult = await (window as any).skopeoApi.verifyCosignSignature(
         verifyImageRef.trim(),
         pubKeyToUse,
         verifyCredId || undefined,
-        verifyInsecure
+        verifyInsecure,
+        platformToUse
       );
       setVerificationResult(result);
       if (result.verified) {
-        onShowToast('Cosign signature verified successfully! 🛡️', true);
+        onShowToast(`Cosign signature verified for ${result.os || 'linux'}/${result.architecture || 'amd64'}! 🛡️`, true);
       } else {
         onShowToast(result.error || 'Verification failed.', false);
       }
@@ -152,16 +172,22 @@ export const CosignManager: React.FC<Props> = ({ credentials, onShowToast }) => 
       }
     });
 
+    const currentPreset = PLATFORM_PRESETS[signPlatformIndex];
+    const platformToUse = currentPreset.os && currentPreset.arch
+      ? { os: currentPreset.os, arch: currentPreset.arch, variant: currentPreset.variant }
+      : undefined;
+
     try {
       const result: CosignSignResult = await (window as any).skopeoApi.signCosignImage(
         signImageRef.trim(),
         privKeyToUse,
         annotationMap,
         signCredId || undefined,
-        signInsecure
+        signInsecure,
+        platformToUse
       );
       setSignResult(result);
-      onShowToast(`Image signed successfully! Pushed signature tag ${result.signatureTag}`, true);
+      onShowToast(`Image signed for ${result.os || 'linux'}/${result.architecture || 'amd64'}! Tag: ${result.signatureTag}`, true);
     } catch (err: any) {
       onShowToast(err.message || 'Signing failed.', false);
     } finally {
@@ -238,7 +264,7 @@ export const CosignManager: React.FC<Props> = ({ credentials, onShowToast }) => 
             Cosign & Image Signing
           </h1>
           <p className="text-xs text-slate-400 mt-1">
-            Native container image signing, cryptographic signature verification, and key management compatible with Sigstore Cosign standards.
+            Native container image signing, cryptographic signature verification, and multi-architecture key management compatible with Sigstore Cosign standards.
           </p>
         </div>
 
@@ -290,7 +316,7 @@ export const CosignManager: React.FC<Props> = ({ credentials, onShowToast }) => 
               <span>Verify Remote Image Signature</span>
             </h2>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
               <div className="md:col-span-2">
                 <label className="block text-[11px] font-semibold text-slate-300 mb-1">
                   Image Reference
@@ -303,6 +329,23 @@ export const CosignManager: React.FC<Props> = ({ credentials, onShowToast }) => 
                   onChange={(e) => setVerifyImageRef(e.target.value)}
                   className="w-full px-3 py-2 rounded-lg bg-[#0a0a14] border border-white/10 text-white text-xs font-mono focus:border-amber-400 focus:outline-none"
                 />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                  Target Architecture
+                </label>
+                <select
+                  value={verifyPlatformIndex}
+                  onChange={(e) => setVerifyPlatformIndex(parseInt(e.target.value))}
+                  className="w-full px-3 py-2 rounded-lg bg-[#0a0a14] border border-white/10 text-amber-300 text-xs font-mono focus:border-amber-400 focus:outline-none"
+                >
+                  {PLATFORM_PRESETS.map((p, idx) => (
+                    <option key={idx} value={idx}>
+                      {p.label}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <div>
@@ -459,10 +502,17 @@ export const CosignManager: React.FC<Props> = ({ credentials, onShowToast }) => 
                   <XCircle className="w-6 h-6 text-rose-400 shrink-0 mt-0.5" />
                 )}
                 <div className="space-y-1 min-w-0 flex-1">
-                  <div className="text-base font-bold">
-                    {verificationResult.verified
-                      ? 'Cosign Signature Valid & Verified'
-                      : 'Verification Failed'}
+                  <div className="text-base font-bold flex items-center gap-2">
+                    <span>
+                      {verificationResult.verified
+                        ? 'Cosign Signature Valid & Verified'
+                        : 'Verification Failed'}
+                    </span>
+                    {verificationResult.architecture && (
+                      <span className="px-2 py-0.5 rounded text-[11px] font-mono font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                        {verificationResult.os || 'linux'}/{verificationResult.architecture}
+                      </span>
+                    )}
                   </div>
                   <div className="text-xs opacity-90 font-mono break-all">
                     {verificationResult.verified
@@ -475,7 +525,15 @@ export const CosignManager: React.FC<Props> = ({ credentials, onShowToast }) => 
               {/* Details grid */}
               {verificationResult.payload && (
                 <div className="space-y-3">
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                    <div className="p-3 rounded-lg bg-[#0a0a14] border border-white/5">
+                      <div className="text-[10px] text-slate-400 uppercase font-bold">Target Platform</div>
+                      <div className="text-xs font-mono text-cyan-300 mt-1 flex items-center gap-1">
+                        <Monitor className="w-3.5 h-3.5 text-cyan-400" />
+                        <span>{verificationResult.os || 'linux'} / {verificationResult.architecture || 'amd64'}</span>
+                      </div>
+                    </div>
+
                     <div className="p-3 rounded-lg bg-[#0a0a14] border border-white/5">
                       <div className="text-[10px] text-slate-400 uppercase font-bold">Signature Tag</div>
                       <div className="text-xs font-mono text-amber-300 mt-1 truncate">
@@ -541,7 +599,7 @@ export const CosignManager: React.FC<Props> = ({ credentials, onShowToast }) => 
               <span>Sign Container Image & Push Signature</span>
             </h2>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
               <div className="md:col-span-2">
                 <label className="block text-[11px] font-semibold text-slate-300 mb-1">
                   Image Reference to Sign
@@ -554,6 +612,23 @@ export const CosignManager: React.FC<Props> = ({ credentials, onShowToast }) => 
                   onChange={(e) => setSignImageRef(e.target.value)}
                   className="w-full px-3 py-2 rounded-lg bg-[#0a0a14] border border-white/10 text-white text-xs font-mono focus:border-amber-400 focus:outline-none"
                 />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                  Target Architecture
+                </label>
+                <select
+                  value={signPlatformIndex}
+                  onChange={(e) => setSignPlatformIndex(parseInt(e.target.value))}
+                  className="w-full px-3 py-2 rounded-lg bg-[#0a0a14] border border-white/10 text-amber-300 text-xs font-mono focus:border-amber-400 focus:outline-none"
+                >
+                  {PLATFORM_PRESETS.map((p, idx) => (
+                    <option key={idx} value={idx}>
+                      {p.label}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <div>
@@ -729,7 +804,14 @@ export const CosignManager: React.FC<Props> = ({ credentials, onShowToast }) => 
               <div className="p-4 rounded-xl bg-emerald-950/40 border border-emerald-500/40 text-emerald-200 flex items-start gap-3.5">
                 <CheckCircle2 className="w-6 h-6 text-emerald-400 shrink-0 mt-0.5" />
                 <div className="space-y-1 flex-1">
-                  <div className="text-base font-bold">Image Signed Successfully!</div>
+                  <div className="text-base font-bold flex items-center gap-2">
+                    <span>Image Signed Successfully!</span>
+                    {signResult.architecture && (
+                      <span className="px-2 py-0.5 rounded text-[11px] font-mono font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                        {signResult.os || 'linux'}/{signResult.architecture}
+                      </span>
+                    )}
+                  </div>
                   <p className="text-xs opacity-90 font-mono break-all">
                     Signature artifact uploaded to registry under tag:{' '}
                     <strong className="text-emerald-300">{signResult.signatureTag}</strong>
@@ -737,7 +819,14 @@ export const CosignManager: React.FC<Props> = ({ credentials, onShowToast }) => 
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3 text-xs font-mono">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs font-mono">
+                <div className="p-3 rounded-lg bg-[#0a0a14] border border-white/5">
+                  <span className="text-slate-400 block text-[10px] uppercase font-bold">Target Platform</span>
+                  <span className="text-cyan-300 truncate block mt-0.5 flex items-center gap-1">
+                    <Monitor className="w-3.5 h-3.5 text-cyan-400" />
+                    <span>{signResult.os || 'linux'} / {signResult.architecture || 'amd64'}</span>
+                  </span>
+                </div>
                 <div className="p-3 rounded-lg bg-[#0a0a14] border border-white/5">
                   <span className="text-slate-400 block text-[10px] uppercase font-bold">Signed Image Digest</span>
                   <span className="text-amber-300 truncate block mt-0.5">{signResult.digest}</span>

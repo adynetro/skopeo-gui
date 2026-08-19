@@ -176,6 +176,8 @@ export interface CosignVerificationResult {
   verified: boolean;
   imageRef: string;
   digest: string;
+  os?: string;
+  architecture?: string;
   signatureTag?: string;
   signedAt?: string;
   signerIdentity?: string;
@@ -197,6 +199,8 @@ export interface CosignSignResult {
   success: boolean;
   imageRef: string;
   digest: string;
+  os?: string;
+  architecture?: string;
   signatureTag: string;
   signedAt: string;
   keyId?: string;

@@ -37,10 +37,10 @@ export const skopeoApi = {
     ipcRenderer.invoke('cosign:generate-key', { name, algorithm }),
   saveCosignKey: (key: any) => ipcRenderer.invoke('cosign:save-key', key),
   deleteCosignKey: (id: string) => ipcRenderer.invoke('cosign:delete-key', id),
-  verifyCosignSignature: (imageRef: string, publicKeyPem?: string, credId?: string, insecure?: boolean) =>
-    ipcRenderer.invoke('cosign:verify', { imageRef, publicKeyPem, credId, insecure }),
-  signCosignImage: (imageRef: string, privateKeyPem: string, annotations?: Record<string, string>, credId?: string, insecure?: boolean) =>
-    ipcRenderer.invoke('cosign:sign', { imageRef, privateKeyPem, annotations, credId, insecure }),
+  verifyCosignSignature: (imageRef: string, publicKeyPem?: string, credId?: string, insecure?: boolean, platform?: { os?: string; arch?: string; variant?: string }) =>
+    ipcRenderer.invoke('cosign:verify', { imageRef, publicKeyPem, credId, insecure, platform }),
+  signCosignImage: (imageRef: string, privateKeyPem: string, annotations?: Record<string, string>, credId?: string, insecure?: boolean, platform?: { os?: string; arch?: string; variant?: string }) =>
+    ipcRenderer.invoke('cosign:sign', { imageRef, privateKeyPem, annotations, credId, insecure, platform }),
 
   // Batch Migration
   startBatchMigration: (config: BatchMigrationConfig) =>

@@ -166,16 +166,16 @@ function registerIpc() {
     return cosign.deleteKey(id);
   });
 
-  ipcMain.handle('cosign:verify', async (_event, { imageRef, publicKeyPem, credId, insecure }) => {
+  ipcMain.handle('cosign:verify', async (_event, { imageRef, publicKeyPem, credId, insecure, platform }) => {
     const allCreds = creds.getAll();
     const cred = credId ? allCreds.find((c) => c.id === credId) : undefined;
-    return cosign.verifySignature(imageRef, publicKeyPem, cred, insecure);
+    return cosign.verifySignature(imageRef, publicKeyPem, cred, insecure, platform);
   });
 
-  ipcMain.handle('cosign:sign', async (_event, { imageRef, privateKeyPem, annotations, credId, insecure }) => {
+  ipcMain.handle('cosign:sign', async (_event, { imageRef, privateKeyPem, annotations, credId, insecure, platform }) => {
     const allCreds = creds.getAll();
     const cred = credId ? allCreds.find((c) => c.id === credId) : undefined;
-    return cosign.signImage(imageRef, privateKeyPem, annotations, cred, insecure);
+    return cosign.signImage(imageRef, privateKeyPem, annotations, cred, insecure, platform);
   });
 
   // Batch
