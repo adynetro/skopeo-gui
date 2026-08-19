@@ -101,10 +101,10 @@ function registerIpc() {
   });
 
   // Skopeo Operations
-  ipcMain.handle('skopeo:inspect', async (_event, { imageRef, credId, insecure }) => {
+  ipcMain.handle('skopeo:inspect', async (_event, { imageRef, credId, insecure, platform }) => {
     const allCreds = creds.getAll();
     const cred = credId ? allCreds.find((c) => c.id === credId) : undefined;
-    return skopeo.inspect(imageRef, cred, insecure);
+    return skopeo.inspect(imageRef, cred, insecure, platform);
   });
 
   ipcMain.handle('skopeo:inspect-raw', async (_event, { imageRef, credId, insecure }) => {
@@ -113,10 +113,10 @@ function registerIpc() {
     return skopeo.inspectRaw(imageRef, cred, insecure);
   });
 
-  ipcMain.handle('skopeo:inspect-sbom', async (_event, { imageRef, credId, insecure }) => {
+  ipcMain.handle('skopeo:inspect-sbom', async (_event, { imageRef, credId, insecure, platform }) => {
     const allCreds = creds.getAll();
     const cred = credId ? allCreds.find((c) => c.id === credId) : undefined;
-    return skopeo.inspectSbom(imageRef, cred, insecure);
+    return skopeo.inspectSbom(imageRef, cred, insecure, platform);
   });
 
   ipcMain.handle('skopeo:list-tags', async (_event, { imageRef, credId, insecure }) => {

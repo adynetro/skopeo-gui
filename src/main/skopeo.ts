@@ -70,10 +70,21 @@ export class SkopeoService {
   public async inspect(
     imageRef: string,
     cred?: RegistryCredential,
-    insecure: boolean = false
+    insecure: boolean = false,
+    platform?: { os?: string; arch?: string; variant?: string }
   ): Promise<ImageInspection> {
     const bin = await this.getBinPath();
     const args = ['inspect'];
+
+    if (platform?.os) {
+      args.push(`--override-os=${platform.os}`);
+    }
+    if (platform?.arch) {
+      args.push(`--override-arch=${platform.arch}`);
+    }
+    if (platform?.variant) {
+      args.push(`--override-variant=${platform.variant}`);
+    }
 
     if (cred && !cred.isAnonymous && cred.username && cred.password) {
       args.push(`--creds=${cred.username}:${cred.password}`);
@@ -160,10 +171,27 @@ export class SkopeoService {
   public async inspectSbom(
     imageRef: string,
     cred?: RegistryCredential,
-    insecure: boolean = false
+    insecure: boolean = false,
+    platform?: { os?: string; arch?: string; variant?: string }
   ): Promise<SbomInspection> {
     try {
-      const inspectData = await this.inspect(imageRef, cred, insecure);
+      // Default to linux/amd64 if no override given
+      const targetPlatform = platform || { os: 'linux', arch: 'amd64' };
+
+      // Discover all available platforms if it's a multi-arch manifest
+      let availablePlatforms: { os: string; architecture: string; variant?: string }[] = [];
+      try {
+        const rawManifest = await this.inspectRaw(imageRef, cred, insecure);
+        if (rawManifest && Array.isArray(rawManifest.manifests)) {
+          availablePlatforms = rawManifest.manifests
+            .map((m: any) => m.platform)
+            .filter((p: any) => p && p.os && p.architecture);
+        }
+      } catch {
+        // Not a multi-arch index, ignore
+      }
+
+      const inspectData = await this.inspect(imageRef, cred, insecure, targetPlatform);
       const digest = inspectData.Digest || '';
       const cleanRef = imageRef.replace(/^([a-z-]+:\/\/)/, '');
       const repoBase = cleanRef.includes(':') ? cleanRef.split(':')[0] : cleanRef.split('@')[0];
@@ -293,6 +321,9 @@ export class SkopeoService {
       return {
         imageRef,
         digest,
+        os: inspectData.Os || targetPlatform.os,
+        architecture: inspectData.Architecture || targetPlatform.arch,
+        availablePlatforms: availablePlatforms.length > 0 ? availablePlatforms : undefined,
         format,
         specVersion,
         creationTimestamp: inspectData.Created,

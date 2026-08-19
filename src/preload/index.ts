@@ -14,10 +14,10 @@ export const skopeoApi = {
   importDockerConfig: () => ipcRenderer.invoke('creds:import-docker'),
 
   // Skopeo Operations
-  inspectImage: (imageRef: string, credId?: string, insecure?: boolean) =>
-    ipcRenderer.invoke('skopeo:inspect', { imageRef, credId, insecure }),
-  inspectSbom: (imageRef: string, credId?: string, insecure?: boolean) =>
-    ipcRenderer.invoke('skopeo:inspect-sbom', { imageRef, credId, insecure }),
+  inspectImage: (imageRef: string, credId?: string, insecure?: boolean, platform?: { os?: string; arch?: string; variant?: string }) =>
+    ipcRenderer.invoke('skopeo:inspect', { imageRef, credId, insecure, platform }),
+  inspectSbom: (imageRef: string, credId?: string, insecure?: boolean, platform?: { os?: string; arch?: string; variant?: string }) =>
+    ipcRenderer.invoke('skopeo:inspect-sbom', { imageRef, credId, insecure, platform }),
   inspectRaw: (imageRef: string, credId?: string, insecure?: boolean) =>
     ipcRenderer.invoke('skopeo:inspect-raw', { imageRef, credId, insecure }),
   listTags: (imageRef: string, credId?: string, insecure?: boolean) =>

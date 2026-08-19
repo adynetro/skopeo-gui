@@ -36,6 +36,12 @@ export interface ImageInspection {
   RawJSON?: any;
 }
 
+export interface ImagePlatform {
+  os: string;
+  architecture: string;
+  variant?: string;
+}
+
 export interface SbomPackage {
   name: string;
   version: string;
@@ -48,6 +54,9 @@ export interface SbomPackage {
 export interface SbomInspection {
   imageRef: string;
   digest?: string;
+  os?: string;
+  architecture?: string;
+  availablePlatforms?: ImagePlatform[];
   format: 'SPDX' | 'CycloneDX' | 'Cosign-Attestation' | 'Labels' | 'None';
   specVersion?: string;
   creationTimestamp?: string;
