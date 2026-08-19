@@ -7,9 +7,10 @@ import {
   BookOpen,
   Cloud,
   Terminal,
+  Shield,
 } from 'lucide-react';
 
-export type TabType = 'batch' | 'single' | 'inspector' | 'credentials' | 'logs';
+export type TabType = 'batch' | 'single' | 'inspector' | 'security' | 'credentials' | 'logs';
 
 interface Props {
   activeTab: TabType;
@@ -44,6 +45,12 @@ export const Sidebar: React.FC<Props> = ({
       label: 'Image Inspector',
       description: 'Tags, layers & multi-arch',
       icon: Search,
+    },
+    {
+      id: 'security' as TabType,
+      label: 'Security & SBOM',
+      description: 'Cosign, SBOM & supply chain',
+      icon: Shield,
     },
     {
       id: 'credentials' as TabType,

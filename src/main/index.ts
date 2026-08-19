@@ -13,10 +13,10 @@ const batchRunner = new BatchRunner(skopeo, creds);
 
 async function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 1200,
-    height: 820,
-    minWidth: 960,
-    minHeight: 640,
+    width: 1240,
+    height: 840,
+    minWidth: 980,
+    minHeight: 660,
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 16, y: 16 },
     vibrancy: 'under-window',
@@ -29,7 +29,6 @@ async function createWindow() {
     },
   });
 
-  // Open external links in default browser
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith('https:') || url.startsWith('http:')) {
       shell.openExternal(url);
@@ -41,7 +40,6 @@ async function createWindow() {
 
   if (isDev && process.env.VITE_DEV_SERVER_URL) {
     mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
-    // mainWindow.webContents.openDevTools({ mode: 'detach' });
   } else if (isDev) {
     mainWindow.loadURL('http://localhost:5173');
   } else {
@@ -53,7 +51,6 @@ async function createWindow() {
   });
 }
 
-// Register IPC handlers
 function registerIpc() {
   // System Info
   ipcMain.handle('system:get-info', async () => {
@@ -110,10 +107,28 @@ function registerIpc() {
     return skopeo.inspect(imageRef, cred, insecure);
   });
 
+  ipcMain.handle('skopeo:inspect-sbom', async (_event, { imageRef, credId, insecure }) => {
+    const allCreds = creds.getAll();
+    const cred = credId ? allCreds.find((c) => c.id === credId) : undefined;
+    return skopeo.inspectSbom(imageRef, cred, insecure);
+  });
+
   ipcMain.handle('skopeo:list-tags', async (_event, { imageRef, credId, insecure }) => {
     const allCreds = creds.getAll();
     const cred = credId ? allCreds.find((c) => c.id === credId) : undefined;
     return skopeo.listTags(imageRef, cred, insecure);
+  });
+
+  ipcMain.handle('skopeo:delete', async (_event, { imageRef, credId, insecure }) => {
+    const allCreds = creds.getAll();
+    const cred = credId ? allCreds.find((c) => c.id === credId) : undefined;
+    return skopeo.delete(imageRef, cred, insecure);
+  });
+
+  ipcMain.handle('skopeo:batch-delete', async (_event, { imageRefs, credId, insecure }) => {
+    const allCreds = creds.getAll();
+    const cred = credId ? allCreds.find((c) => c.id === credId) : undefined;
+    return skopeo.batchDelete(imageRefs, cred, insecure);
   });
 
   ipcMain.handle('skopeo:format-uri', async (_event, { transport, ref }: { transport: TransportType; ref: string }) => {

@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import { BatchItem, BatchMigrationConfig, ImageInspection, LogEntry, RegistryCredential, TransportType } from '../types';
+import { BatchItem, BatchMigrationConfig, ImageInspection, LogEntry, RegistryCredential, SbomInspection, TransportType } from '../types';
 
 export const skopeoApi = {
   // System & Binary
@@ -16,8 +16,14 @@ export const skopeoApi = {
   // Skopeo Operations
   inspectImage: (imageRef: string, credId?: string, insecure?: boolean) =>
     ipcRenderer.invoke('skopeo:inspect', { imageRef, credId, insecure }),
+  inspectSbom: (imageRef: string, credId?: string, insecure?: boolean) =>
+    ipcRenderer.invoke('skopeo:inspect-sbom', { imageRef, credId, insecure }),
   listTags: (imageRef: string, credId?: string, insecure?: boolean) =>
     ipcRenderer.invoke('skopeo:list-tags', { imageRef, credId, insecure }),
+  deleteImage: (imageRef: string, credId?: string, insecure?: boolean) =>
+    ipcRenderer.invoke('skopeo:delete', { imageRef, credId, insecure }),
+  batchDeleteImages: (imageRefs: string[], credId?: string, insecure?: boolean) =>
+    ipcRenderer.invoke('skopeo:batch-delete', { imageRefs, credId, insecure }),
   formatUri: (transport: TransportType, ref: string) =>
     ipcRenderer.invoke('skopeo:format-uri', { transport, ref }),
 
