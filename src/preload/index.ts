@@ -18,6 +18,8 @@ export const skopeoApi = {
     ipcRenderer.invoke('skopeo:inspect', { imageRef, credId, insecure }),
   inspectSbom: (imageRef: string, credId?: string, insecure?: boolean) =>
     ipcRenderer.invoke('skopeo:inspect-sbom', { imageRef, credId, insecure }),
+  inspectRaw: (imageRef: string, credId?: string, insecure?: boolean) =>
+    ipcRenderer.invoke('skopeo:inspect-raw', { imageRef, credId, insecure }),
   listTags: (imageRef: string, credId?: string, insecure?: boolean) =>
     ipcRenderer.invoke('skopeo:list-tags', { imageRef, credId, insecure }),
   deleteImage: (imageRef: string, credId?: string, insecure?: boolean) =>

@@ -107,6 +107,12 @@ function registerIpc() {
     return skopeo.inspect(imageRef, cred, insecure);
   });
 
+  ipcMain.handle('skopeo:inspect-raw', async (_event, { imageRef, credId, insecure }) => {
+    const allCreds = creds.getAll();
+    const cred = credId ? allCreds.find((c) => c.id === credId) : undefined;
+    return skopeo.inspectRaw(imageRef, cred, insecure);
+  });
+
   ipcMain.handle('skopeo:inspect-sbom', async (_event, { imageRef, credId, insecure }) => {
     const allCreds = creds.getAll();
     const cred = credId ? allCreds.find((c) => c.id === credId) : undefined;

@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { TitleBar } from './components/TitleBar';
 import { Sidebar, TabType } from './components/Sidebar';
 import { BatchTransfer } from './components/BatchTransfer';
-import { SingleTransfer } from './components/SingleTransfer';
 import { ImageInspector } from './components/ImageInspector';
 import { SbomInspector } from './components/SbomInspector';
 import { CredentialManager } from './components/CredentialManager';
@@ -128,13 +127,6 @@ export const App: React.FC = () => {
               isRunning={isBatchRunning}
               onStart={handleStartBatch}
               onCancel={handleCancelBatch}
-              onShowToast={showToast}
-            />
-          )}
-
-          {activeTab === 'single' && (
-            <SingleTransfer
-              credentials={credentials}
               onShowToast={showToast}
             />
           )}
