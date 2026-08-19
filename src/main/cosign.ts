@@ -143,37 +143,68 @@ export class CosignService {
     imageRef: string,
     publicKeyPem?: string,
     cred?: RegistryCredential,
-    insecure: boolean = false
+    insecure: boolean = false,
+    platform?: { os?: string; arch?: string; variant?: string }
   ): Promise<CosignVerificationResult> {
     try {
       const fullRef = imageRef.includes('://') ? imageRef.trim() : `docker://${imageRef.trim()}`;
-      const inspectData = await this.skopeo.inspect(fullRef, cred, insecure);
-      const digest = inspectData.Digest || '';
+      const inspectData = await this.skopeo.inspect(fullRef, cred, insecure, platform);
+      let digest = inspectData.Digest || '';
 
       if (!digest.includes('sha256:')) {
         return {
           verified: false,
           imageRef,
           digest,
+          os: inspectData.Os,
+          architecture: inspectData.Architecture,
           error: 'Image does not have a valid sha256 manifest digest.',
         };
       }
 
-      const hex = digest.replace('sha256:', '');
-      const sigTag = `sha256-${hex}.sig`;
+      let hex = digest.replace('sha256:', '');
+      let sigTag = `sha256-${hex}.sig`;
       const cleanRef = fullRef.replace(/^([a-z-]+:\/\/)/, '');
       const repoBase = cleanRef.includes(':') ? cleanRef.split(':')[0] : cleanRef.split('@')[0];
-      const sigRef = `docker://${repoBase}:${sigTag}`;
+      let sigRef = `docker://${repoBase}:${sigTag}`;
 
-      // Check if .sig tag exists
-      const allTags = await this.skopeo.listTags(`docker://${repoBase}`, cred, insecure);
+      // Check if .sig tag exists for this specific platform digest
+      let allTags: string[] = [];
+      try {
+        allTags = await this.skopeo.listTags(`docker://${repoBase}`, cred, insecure);
+      } catch {
+        // Tag listing fallback
+      }
+
       if (!allTags.includes(sigTag)) {
+        // If not found on child platform digest, check if the root multi-arch index was signed
+        try {
+          const rootInspect = await this.skopeo.inspect(fullRef, cred, insecure);
+          const rootDigest = rootInspect.Digest || '';
+          if (rootDigest && rootDigest.includes('sha256:')) {
+            const rootHex = rootDigest.replace('sha256:', '');
+            const rootSigTag = `sha256-${rootHex}.sig`;
+            if (allTags.includes(rootSigTag)) {
+              hex = rootHex;
+              sigTag = rootSigTag;
+              sigRef = `docker://${repoBase}:${sigTag}`;
+              digest = rootDigest;
+            }
+          }
+        } catch {
+          // Ignore
+        }
+      }
+
+      if (allTags.length > 0 && !allTags.includes(sigTag)) {
         return {
           verified: false,
           imageRef,
           digest,
+          os: inspectData.Os,
+          architecture: inspectData.Architecture,
           signatureTag: sigTag,
-          error: `No Cosign signature tag (${sigTag}) found for this image in the registry.`,
+          error: `No Cosign signature tag (${sigTag}) found for this image/architecture in the registry.`,
         };
       }
 
@@ -350,14 +381,15 @@ export class CosignService {
     privateKeyPem: string,
     annotations?: Record<string, string>,
     cred?: RegistryCredential,
-    insecure: boolean = false
+    insecure: boolean = false,
+    platform?: { os?: string; arch?: string; variant?: string }
   ): Promise<CosignSignResult> {
     if (!privateKeyPem || !privateKeyPem.trim()) {
       throw new Error('Private key in PEM format is required to sign images.');
     }
 
     const fullRef = imageRef.includes('://') ? imageRef.trim() : `docker://${imageRef.trim()}`;
-    const inspectData = await this.skopeo.inspect(fullRef, cred, insecure);
+    const inspectData = await this.skopeo.inspect(fullRef, cred, insecure, platform);
     const digest = inspectData.Digest || '';
 
     if (!digest.includes('sha256:')) {
@@ -385,6 +417,8 @@ export class CosignService {
       optional: {
         creator: 'Skopeo GUI (Native Cosign Engine)',
         timestamp: signedAt,
+        ...(inspectData.Architecture ? { 'org.opencontainers.image.architecture': inspectData.Architecture } : {}),
+        ...(inspectData.Os ? { 'org.opencontainers.image.os': inspectData.Os } : {}),
         ...(annotations || {}),
       },
     };
@@ -455,6 +489,8 @@ export class CosignService {
         success: true,
         imageRef,
         digest,
+        os: inspectData.Os,
+        architecture: inspectData.Architecture,
         signatureTag: sigTag,
         signedAt,
       };
