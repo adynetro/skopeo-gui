@@ -4,6 +4,7 @@ import { Sidebar, TabType } from './components/Sidebar';
 import { BatchTransfer } from './components/BatchTransfer';
 import { ImageInspector } from './components/ImageInspector';
 import { SbomInspector } from './components/SbomInspector';
+import { CosignManager } from './components/CosignManager';
 import { CredentialManager } from './components/CredentialManager';
 import { TerminalLogs } from './components/TerminalLogs';
 import { SettingsModal } from './components/SettingsModal';
@@ -140,6 +141,13 @@ export const App: React.FC = () => {
 
           {activeTab === 'security' && (
             <SbomInspector
+              credentials={credentials}
+              onShowToast={showToast}
+            />
+          )}
+
+          {activeTab === 'cosign' && (
+            <CosignManager
               credentials={credentials}
               onShowToast={showToast}
             />

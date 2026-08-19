@@ -7,9 +7,10 @@ import {
   Cloud,
   Terminal,
   Shield,
+  FileCheck,
 } from 'lucide-react';
 
-export type TabType = 'batch' | 'inspector' | 'security' | 'credentials' | 'logs';
+export type TabType = 'batch' | 'inspector' | 'security' | 'cosign' | 'credentials' | 'logs';
 
 interface Props {
   activeTab: TabType;
@@ -42,8 +43,14 @@ export const Sidebar: React.FC<Props> = ({
     {
       id: 'security' as TabType,
       label: 'Security & SBOM',
-      description: 'Cosign, SBOM & supply chain',
+      description: 'Cosign, SBOM & CVE scanner',
       icon: Shield,
+    },
+    {
+      id: 'cosign' as TabType,
+      label: 'Cosign Signing & Keys',
+      description: 'Sign, verify & manage keys',
+      icon: FileCheck,
     },
     {
       id: 'credentials' as TabType,

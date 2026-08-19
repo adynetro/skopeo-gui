@@ -31,6 +31,17 @@ export const skopeoApi = {
   formatUri: (transport: TransportType, ref: string) =>
     ipcRenderer.invoke('skopeo:format-uri', { transport, ref }),
 
+  // Cosign Operations
+  getCosignKeys: () => ipcRenderer.invoke('cosign:get-keys'),
+  generateCosignKeyPair: (name?: string, algorithm?: string) =>
+    ipcRenderer.invoke('cosign:generate-key', { name, algorithm }),
+  saveCosignKey: (key: any) => ipcRenderer.invoke('cosign:save-key', key),
+  deleteCosignKey: (id: string) => ipcRenderer.invoke('cosign:delete-key', id),
+  verifyCosignSignature: (imageRef: string, publicKeyPem?: string, credId?: string, insecure?: boolean) =>
+    ipcRenderer.invoke('cosign:verify', { imageRef, publicKeyPem, credId, insecure }),
+  signCosignImage: (imageRef: string, privateKeyPem: string, annotations?: Record<string, string>, credId?: string, insecure?: boolean) =>
+    ipcRenderer.invoke('cosign:sign', { imageRef, privateKeyPem, annotations, credId, insecure }),
+
   // Batch Migration
   startBatchMigration: (config: BatchMigrationConfig) =>
     ipcRenderer.invoke('batch:start', config),

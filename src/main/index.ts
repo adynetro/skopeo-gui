@@ -4,6 +4,7 @@ import { SkopeoService } from './skopeo';
 import { CredentialService } from './credentials';
 import { BatchRunner } from './batchRunner';
 import { VulnerabilityScanner } from './vulnerabilityScanner';
+import { CosignService } from './cosign';
 import { BatchMigrationConfig, RegistryCredential, TransportType } from '../types';
 
 let mainWindow: BrowserWindow | null = null;
@@ -12,6 +13,7 @@ const skopeo = new SkopeoService();
 const creds = new CredentialService();
 const batchRunner = new BatchRunner(skopeo, creds);
 const vulnScanner = new VulnerabilityScanner();
+const cosign = new CosignService(skopeo);
 
 async function createWindow() {
   mainWindow = new BrowserWindow({
@@ -145,6 +147,35 @@ function registerIpc() {
 
   ipcMain.handle('skopeo:format-uri', async (_event, { transport, ref }: { transport: TransportType; ref: string }) => {
     return skopeo.formatImageUri(transport, ref);
+  });
+
+  // Cosign Operations
+  ipcMain.handle('cosign:get-keys', async () => {
+    return cosign.getAllKeys();
+  });
+
+  ipcMain.handle('cosign:generate-key', async (_event, { name, algorithm }) => {
+    return cosign.generateKeyPair(name, algorithm);
+  });
+
+  ipcMain.handle('cosign:save-key', async (_event, key) => {
+    return cosign.saveKey(key);
+  });
+
+  ipcMain.handle('cosign:delete-key', async (_event, id: string) => {
+    return cosign.deleteKey(id);
+  });
+
+  ipcMain.handle('cosign:verify', async (_event, { imageRef, publicKeyPem, credId, insecure }) => {
+    const allCreds = creds.getAll();
+    const cred = credId ? allCreds.find((c) => c.id === credId) : undefined;
+    return cosign.verifySignature(imageRef, publicKeyPem, cred, insecure);
+  });
+
+  ipcMain.handle('cosign:sign', async (_event, { imageRef, privateKeyPem, annotations, credId, insecure }) => {
+    const allCreds = creds.getAll();
+    const cred = credId ? allCreds.find((c) => c.id === credId) : undefined;
+    return cosign.signImage(imageRef, privateKeyPem, annotations, cred, insecure);
   });
 
   // Batch
