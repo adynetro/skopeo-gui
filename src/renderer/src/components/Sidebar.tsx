@@ -1,7 +1,6 @@
 import React from 'react';
 import {
   Layers,
-  ArrowRightLeft,
   KeyRound,
   Search,
   BookOpen,
@@ -10,7 +9,7 @@ import {
   Shield,
 } from 'lucide-react';
 
-export type TabType = 'batch' | 'single' | 'inspector' | 'security' | 'credentials' | 'logs';
+export type TabType = 'batch' | 'inspector' | 'security' | 'credentials' | 'logs';
 
 interface Props {
   activeTab: TabType;
@@ -33,12 +32,6 @@ export const Sidebar: React.FC<Props> = ({
       icon: Layers,
       badge: activeTasksCount > 0 ? `${activeTasksCount} active` : undefined,
       badgeColor: 'bg-amber-500/20 text-amber-300 border-amber-500/30',
-    },
-    {
-      id: 'single' as TabType,
-      label: 'Single Transfer',
-      description: 'Quick 1-to-1 image copy',
-      icon: ArrowRightLeft,
     },
     {
       id: 'inspector' as TabType,
