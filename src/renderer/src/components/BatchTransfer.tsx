@@ -8,7 +8,6 @@ import {
   CheckCircle2,
   XCircle,
   Clock,
-  Settings2,
   Tag,
   Filter,
   CheckSquare,
@@ -18,8 +17,14 @@ import {
   AlertTriangle,
   Server,
   Zap,
+  ListPlus,
+  FileText,
+  Trash2,
+  Plus,
+  Sparkles,
+  HelpCircle,
 } from 'lucide-react';
-import { BatchItem, BatchMigrationConfig, RegistryCredential, TransportType } from '../../../types';
+import { BatchItem, BatchMigrationConfig, ImageTransferPair, RegistryCredential, TransportType } from '../../../types';
 
 interface Props {
   credentials: RegistryCredential[];
@@ -39,6 +44,12 @@ const TRANSPORTS: { value: TransportType; label: string; prefix: string }[] = [
   { value: 'docker-daemon', label: 'Docker Daemon', prefix: 'docker-daemon:' },
 ];
 
+const SAMPLE_IMAGES = `docker.io/library/alpine:latest
+docker.io/library/redis:7-alpine
+docker.io/library/nginx:alpine
+docker.io/library/postgres:16-alpine
+docker.io/library/node:22-alpine`;
+
 export const BatchTransfer: React.FC<Props> = ({
   credentials,
   activeItems,
@@ -47,26 +58,33 @@ export const BatchTransfer: React.FC<Props> = ({
   onCancel,
   onShowToast,
 }) => {
+  // Batch Mode: 'multi-images' (list of different images) or 'tags' (single repo with multiple tags)
+  const [batchMode, setBatchMode] = useState<'multi-images' | 'tags'>('multi-images');
+
   // Source configuration
   const [srcCredId, setSrcCredId] = useState<string>('');
   const [srcTransport, setSrcTransport] = useState<TransportType>('docker');
-  const [srcRepo, setSrcRepo] = useState<string>('');
   const [srcInsecure, setSrcInsecure] = useState<boolean>(false);
 
-  // Tags fetching
+  // Destination configuration
+  const [destCredId, setDestCredId] = useState<string>('');
+  const [destTransport, setDestTransport] = useState<TransportType>('docker');
+  const [destRepoPrefix, setDestRepoPrefix] = useState<string>(''); // e.g. fra.ocir.io/mytenancy/mirror
+  const [destInsecure, setDestInsecure] = useState<boolean>(false);
+
+  // Mode 1: Multi-Images list state
+  const [imageListText, setImageListText] = useState<string>(SAMPLE_IMAGES);
+
+  // Mode 2: Single-Repo Tags state
+  const [srcRepo, setSrcRepo] = useState<string>('');
+  const [destRepo, setDestRepo] = useState<string>('');
   const [isFetchingTags, setIsFetchingTags] = useState(false);
   const [availableTags, setAvailableTags] = useState<string[]>([]);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [tagFilter, setTagFilter] = useState('');
   const [manualTagsInput, setManualTagsInput] = useState('');
 
-  // Destination configuration
-  const [destCredId, setDestCredId] = useState<string>('');
-  const [destTransport, setDestTransport] = useState<TransportType>('docker');
-  const [destRepo, setDestRepo] = useState<string>('');
-  const [destInsecure, setDestInsecure] = useState<boolean>(false);
-
-  // Transfer options
+  // General options
   const [copyAllArch, setCopyAllArch] = useState(true);
   const [concurrency, setConcurrency] = useState(2);
   const [format, setFormat] = useState<'v2s1' | 'v2s2' | 'oci' | undefined>('v2s2');
@@ -74,8 +92,19 @@ export const BatchTransfer: React.FC<Props> = ({
   // UI state
   const [expandedItemId, setExpandedItemId] = useState<string | null>(null);
 
-  const selectedSrcCred = credentials.find((c) => c.id === srcCredId);
-  const selectedDestCred = credentials.find((c) => c.id === destCredId);
+  // Parse multi-image lines
+  const parsedImagePairs: ImageTransferPair[] = imageListText
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith('#'))
+    .map((line) => {
+      // Support "src -> dest" or "src => dest" or just "src"
+      if (line.includes('->') || line.includes('=>')) {
+        const parts = line.split(/->|=>/).map((s) => s.trim());
+        return { src: parts[0], dest: parts[1] };
+      }
+      return { src: line };
+    });
 
   const handleFetchTags = async () => {
     if (!srcRepo.trim()) {
@@ -92,7 +121,7 @@ export const BatchTransfer: React.FC<Props> = ({
         srcInsecure
       );
       setAvailableTags(tags);
-      setSelectedTags(tags); // default select all
+      setSelectedTags(tags);
       onShowToast(`Discovered ${tags.length} tags for ${srcRepo}`, true);
     } catch (err: any) {
       onShowToast(err.message || 'Failed to list tags from repository', false);
@@ -101,75 +130,76 @@ export const BatchTransfer: React.FC<Props> = ({
     }
   };
 
-  const handleSelectAllTags = () => {
-    setSelectedTags(availableTags);
-  };
-
-  const handleClearTags = () => {
-    setSelectedTags([]);
-  };
-
-  const handleToggleTag = (tag: string) => {
-    if (selectedTags.includes(tag)) {
-      setSelectedTags(selectedTags.filter((t) => t !== tag));
-    } else {
-      setSelectedTags([...selectedTags, tag]);
-    }
-  };
-
-  const handleApplyRegex = (pattern: string) => {
-    try {
-      const re = new RegExp(pattern);
-      const matches = availableTags.filter((t) => re.test(t));
-      setSelectedTags(matches);
-      onShowToast(`Selected ${matches.length} tags matching pattern "${pattern}"`, true);
-    } catch {
-      onShowToast('Invalid regular expression', false);
-    }
-  };
-
   const handleStartBatch = () => {
-    let finalTags = [...selectedTags];
-    if (manualTagsInput.trim()) {
-      const parsedManual = manualTagsInput.split(/[\s,]+/).map((t) => t.trim()).filter(Boolean);
-      finalTags = Array.from(new Set([...finalTags, ...parsedManual]));
-    }
+    if (batchMode === 'multi-images') {
+      if (parsedImagePairs.length === 0) {
+        onShowToast('Please enter at least one image in the list.', false);
+        return;
+      }
 
-    if (!srcRepo.trim()) {
-      onShowToast('Please specify a source repository.', false);
-      return;
-    }
-    if (!destRepo.trim()) {
-      onShowToast('Please specify a destination repository.', false);
-      return;
-    }
-    if (finalTags.length === 0) {
-      onShowToast('Please select or specify at least one tag to transfer.', false);
-      return;
-    }
+      if (!destRepoPrefix.trim() && parsedImagePairs.some((p) => !p.dest)) {
+        onShowToast('Please specify a Destination Prefix (e.g. fra.ocir.io/mytenant/mirror) or explicit destination mapping for each image.', false);
+        return;
+      }
 
-    const config: BatchMigrationConfig = {
-      name: `Migration ${srcRepo} -> ${destRepo}`,
-      srcRegistryId: srcCredId || undefined,
-      destRegistryId: destCredId || undefined,
-      srcTransport,
-      destTransport,
-      srcRepo: srcRepo.trim(),
-      destRepo: destRepo.trim(),
-      selectedTags: finalTags,
-      copyAllArchitectures: copyAllArch,
-      srcInsecure,
-      destInsecure,
-      format,
-      concurrency,
-    };
+      const config: BatchMigrationConfig = {
+        name: `Multi-image Batch (${parsedImagePairs.length} images)`,
+        mode: 'multi-images',
+        srcRegistryId: srcCredId || undefined,
+        destRegistryId: destCredId || undefined,
+        srcTransport,
+        destTransport,
+        destRepo: destRepoPrefix.trim(),
+        imagesList: parsedImagePairs,
+        copyAllArchitectures: copyAllArch,
+        srcInsecure,
+        destInsecure,
+        format,
+        concurrency,
+      };
 
-    onStart(config);
+      onStart(config);
+    } else {
+      // Tags mode
+      let finalTags = [...selectedTags];
+      if (manualTagsInput.trim()) {
+        const parsedManual = manualTagsInput.split(/[\s,]+/).map((t) => t.trim()).filter(Boolean);
+        finalTags = Array.from(new Set([...finalTags, ...parsedManual]));
+      }
+
+      if (!srcRepo.trim()) {
+        onShowToast('Please specify a source repository.', false);
+        return;
+      }
+      if (!destRepo.trim()) {
+        onShowToast('Please specify a destination repository.', false);
+        return;
+      }
+      if (finalTags.length === 0) {
+        onShowToast('Please select or specify at least one tag to transfer.', false);
+        return;
+      }
+
+      const config: BatchMigrationConfig = {
+        name: `Tag Migration ${srcRepo} -> ${destRepo}`,
+        mode: 'tags',
+        srcRegistryId: srcCredId || undefined,
+        destRegistryId: destCredId || undefined,
+        srcTransport,
+        destTransport,
+        srcRepo: srcRepo.trim(),
+        destRepo: destRepo.trim(),
+        selectedTags: finalTags,
+        copyAllArchitectures: copyAllArch,
+        srcInsecure,
+        destInsecure,
+        format,
+        concurrency,
+      };
+
+      onStart(config);
+    }
   };
-
-  const filteredTags = availableTags.filter((t) =>
-    t.toLowerCase().includes(tagFilter.toLowerCase())
-  );
 
   const completedCount = activeItems.filter((i) => i.status === 'completed').length;
   const failedCount = activeItems.filter((i) => i.status === 'failed').length;
@@ -187,7 +217,7 @@ export const BatchTransfer: React.FC<Props> = ({
             Batch Image Migration
           </h1>
           <p className="text-xs text-slate-400 mt-1">
-            Batch-copy container images and tags between Oracle Cloud (OCIR), Docker Hub, GitHub Packages, or local storage.
+            Batch-replicate multiple container images or tags between Oracle Cloud (OCIR), Docker Hub, GitHub Packages, or local storage.
           </p>
         </div>
 
@@ -206,35 +236,68 @@ export const BatchTransfer: React.FC<Props> = ({
               className="flex items-center gap-1.5 px-5 py-2.5 rounded-lg text-xs font-bold bg-amber-500 text-black hover:bg-amber-400 transition-all shadow-[0_0_15px_rgba(251,191,36,0.3)] hover:scale-[1.02]"
             >
               <Play className="w-4 h-4 fill-current" />
-              <span>Start Batch Migration ({selectedTags.length || 'Manual'} tags)</span>
+              <span>
+                Start Batch Migration (
+                {batchMode === 'multi-images'
+                  ? `${parsedImagePairs.length} Images`
+                  : `${selectedTags.length || 'Manual'} Tags`}
+                )
+              </span>
             </button>
           )}
         </div>
       </div>
 
-      {/* Migration Configuration Card */}
+      {/* Mode Selector Tabs */}
+      <div className="flex items-center gap-2 bg-[#131326] p-1.5 rounded-xl border border-white/[0.08]">
+        <button
+          onClick={() => setBatchMode('multi-images')}
+          className={`flex-1 flex items-center justify-center gap-2 py-2 px-4 rounded-lg text-xs font-bold transition-all ${
+            batchMode === 'multi-images'
+              ? 'bg-amber-500 text-black shadow-[0_0_15px_rgba(251,191,36,0.25)]'
+              : 'text-slate-400 hover:text-white hover:bg-white/[0.04]'
+          }`}
+        >
+          <ListPlus className="w-4 h-4" />
+          <span>Multi-Image List Mode (Move Multiple Different Images)</span>
+        </button>
+
+        <button
+          onClick={() => setBatchMode('tags')}
+          className={`flex-1 flex items-center justify-center gap-2 py-2 px-4 rounded-lg text-xs font-bold transition-all ${
+            batchMode === 'tags'
+              ? 'bg-amber-500 text-black shadow-[0_0_15px_rgba(251,191,36,0.25)]'
+              : 'text-slate-400 hover:text-white hover:bg-white/[0.04]'
+          }`}
+        >
+          <Tag className="w-4 h-4" />
+          <span>Single-Repo Tag Mode (Move Multiple Tags for One Repo)</span>
+        </button>
+      </div>
+
+      {/* Credentials & Transports Configuration */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* Source Box */}
-        <div className="p-4 rounded-xl bg-[#131326] border border-white/[0.08] space-y-4">
+        {/* Source Registry Credentials */}
+        <div className="p-4 rounded-xl bg-[#131326] border border-white/[0.08] space-y-3">
           <div className="flex items-center justify-between pb-2 border-b border-white/[0.06]">
             <span className="text-xs font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
               <Server className="w-3.5 h-3.5" />
-              Source Image & Registry
+              Source Registry
             </span>
-            <span className="text-[10px] text-slate-400">Origin Repository</span>
+            <span className="text-[10px] text-slate-400">Origin Auth</span>
           </div>
 
-          <div className="space-y-3">
-            <div>
+          <div className="grid grid-cols-3 gap-2">
+            <div className="col-span-2">
               <label className="block text-[11px] font-semibold text-slate-300 mb-1">
-                Registry Credentials / Domain
+                Source Vault Credentials
               </label>
               <select
                 value={srcCredId}
                 onChange={(e) => setSrcCredId(e.target.value)}
                 className="w-full px-3 py-2 rounded-lg bg-[#0a0a14] border border-white/10 text-white text-xs focus:border-amber-400 focus:outline-none"
               >
-                <option value="">(Custom / Unauthenticated / Public)</option>
+                <option value="">(Custom / Unauthenticated / Anonymous)</option>
                 {credentials.map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.name} ({c.domain}) {c.isAnonymous ? '• Anonymous' : `• ${c.username}`}
@@ -243,83 +306,56 @@ export const BatchTransfer: React.FC<Props> = ({
               </select>
             </div>
 
-            <div className="grid grid-cols-3 gap-2">
-              <div className="col-span-1">
-                <label className="block text-[11px] font-semibold text-slate-300 mb-1">Transport</label>
-                <select
-                  value={srcTransport}
-                  onChange={(e) => setSrcTransport(e.target.value as TransportType)}
-                  className="w-full px-2 py-2 rounded-lg bg-[#0a0a14] border border-white/10 text-white text-xs focus:border-amber-400 focus:outline-none font-mono"
-                >
-                  {TRANSPORTS.map((t) => (
-                    <option key={t.value} value={t.value}>
-                      {t.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="col-span-2">
-                <label className="block text-[11px] font-semibold text-slate-300 mb-1">
-                  Source Image / Repository
-                </label>
-                <div className="flex gap-1.5">
-                  <input
-                    type="text"
-                    placeholder="e.g. docker.io/library/nginx or myrepo"
-                    value={srcRepo}
-                    onChange={(e) => setSrcRepo(e.target.value)}
-                    className="flex-1 px-3 py-2 rounded-lg bg-[#0a0a14] border border-white/10 text-white text-xs font-mono focus:border-amber-400 focus:outline-none"
-                  />
-                  <button
-                    type="button"
-                    disabled={isFetchingTags || !srcRepo.trim()}
-                    onClick={handleFetchTags}
-                    className="px-3 py-2 rounded-lg text-xs font-semibold bg-amber-500/15 text-amber-300 border border-amber-500/30 hover:bg-amber-500/25 disabled:opacity-40 transition-colors flex items-center gap-1"
-                    title="List tags from remote repository"
-                  >
-                    <Tag className="w-3.5 h-3.5" />
-                    <span>{isFetchingTags ? '...' : 'Tags'}</span>
-                  </button>
-                </div>
-              </div>
+            <div className="col-span-1">
+              <label className="block text-[11px] font-semibold text-slate-300 mb-1">Transport</label>
+              <select
+                value={srcTransport}
+                onChange={(e) => setSrcTransport(e.target.value as TransportType)}
+                className="w-full px-2 py-2 rounded-lg bg-[#0a0a14] border border-white/10 text-white text-xs font-mono"
+              >
+                {TRANSPORTS.map((t) => (
+                  <option key={t.value} value={t.value}>
+                    {t.label}
+                  </option>
+                ))}
+              </select>
             </div>
-
-            <label className="flex items-center gap-2 cursor-pointer pt-1">
-              <input
-                type="checkbox"
-                checked={srcInsecure}
-                onChange={(e) => setSrcInsecure(e.target.checked)}
-                className="rounded accent-amber-500"
-              />
-              <span className="text-[11px] text-slate-400">
-                Source Insecure TLS (<code className="text-amber-400 text-[10px]">--src-tls-verify=false</code>)
-              </span>
-            </label>
           </div>
+
+          <label className="flex items-center gap-2 cursor-pointer pt-1">
+            <input
+              type="checkbox"
+              checked={srcInsecure}
+              onChange={(e) => setSrcInsecure(e.target.checked)}
+              className="rounded accent-amber-500"
+            />
+            <span className="text-[11px] text-slate-400">
+              Source Insecure TLS (<code className="text-amber-400 text-[10px]">--src-tls-verify=false</code>)
+            </span>
+          </label>
         </div>
 
-        {/* Destination Box */}
-        <div className="p-4 rounded-xl bg-[#131326] border border-white/[0.08] space-y-4">
+        {/* Destination Registry Credentials */}
+        <div className="p-4 rounded-xl bg-[#131326] border border-white/[0.08] space-y-3">
           <div className="flex items-center justify-between pb-2 border-b border-white/[0.06]">
             <span className="text-xs font-bold uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">
               <Server className="w-3.5 h-3.5" />
-              Destination Image & Registry
+              Destination Registry
             </span>
-            <span className="text-[10px] text-slate-400">Target Repository</span>
+            <span className="text-[10px] text-slate-400">Target Auth</span>
           </div>
 
-          <div className="space-y-3">
-            <div>
+          <div className="grid grid-cols-3 gap-2">
+            <div className="col-span-2">
               <label className="block text-[11px] font-semibold text-slate-300 mb-1">
-                Registry Credentials / Target
+                Destination Vault Credentials
               </label>
               <select
                 value={destCredId}
                 onChange={(e) => setDestCredId(e.target.value)}
                 className="w-full px-3 py-2 rounded-lg bg-[#0a0a14] border border-white/10 text-white text-xs focus:border-emerald-400 focus:outline-none"
               >
-                <option value="">(Custom / Unauthenticated / Public)</option>
+                <option value="">(Custom / Unauthenticated / Anonymous)</option>
                 {credentials.map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.name} ({c.domain}) {c.isAnonymous ? '• Anonymous' : `• ${c.username}`}
@@ -328,190 +364,271 @@ export const BatchTransfer: React.FC<Props> = ({
               </select>
             </div>
 
-            <div className="grid grid-cols-3 gap-2">
-              <div className="col-span-1">
-                <label className="block text-[11px] font-semibold text-slate-300 mb-1">Transport</label>
-                <select
-                  value={destTransport}
-                  onChange={(e) => setDestTransport(e.target.value as TransportType)}
-                  className="w-full px-2 py-2 rounded-lg bg-[#0a0a14] border border-white/10 text-white text-xs focus:border-emerald-400 focus:outline-none font-mono"
-                >
-                  {TRANSPORTS.map((t) => (
-                    <option key={t.value} value={t.value}>
-                      {t.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="col-span-2">
-                <label className="block text-[11px] font-semibold text-slate-300 mb-1">
-                  Destination Image / Target Repo
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. fra.ocir.io/mytenant/mirror/nginx"
-                  value={destRepo}
-                  onChange={(e) => setDestRepo(e.target.value)}
-                  className="w-full px-3 py-2 rounded-lg bg-[#0a0a14] border border-white/10 text-white text-xs font-mono focus:border-emerald-400 focus:outline-none"
-                />
-              </div>
-            </div>
-
-            <label className="flex items-center gap-2 cursor-pointer pt-1">
-              <input
-                type="checkbox"
-                checked={destInsecure}
-                onChange={(e) => setDestInsecure(e.target.checked)}
-                className="rounded accent-emerald-500"
-              />
-              <span className="text-[11px] text-slate-400">
-                Destination Insecure TLS (<code className="text-emerald-400 text-[10px]">--dest-tls-verify=false</code>)
-              </span>
-            </label>
-          </div>
-        </div>
-      </div>
-
-      {/* Tags Selector Drawer */}
-      <div className="p-4 rounded-xl bg-[#131326] border border-white/[0.08] space-y-3">
-        <div className="flex items-center justify-between flex-wrap gap-2 pb-2 border-b border-white/[0.06]">
-          <div className="flex items-center gap-2">
-            <Tag className="w-4 h-4 text-amber-400" />
-            <span className="text-xs font-bold uppercase tracking-wider text-white">
-              Tags to Copy ({selectedTags.length} / {availableTags.length || 'Manual'})
-            </span>
-          </div>
-
-          <div className="flex items-center gap-2 flex-wrap text-xs">
-            {availableTags.length > 0 && (
-              <>
-                <button
-                  type="button"
-                  onClick={handleSelectAllTags}
-                  className="text-[11px] text-amber-400 hover:text-amber-300 underline"
-                >
-                  Select All
-                </button>
-                <span className="text-slate-600">•</span>
-                <button
-                  type="button"
-                  onClick={handleClearTags}
-                  className="text-[11px] text-slate-400 hover:text-white underline"
-                >
-                  Clear All
-                </button>
-                <span className="text-slate-600">•</span>
-                <button
-                  type="button"
-                  onClick={() => handleApplyRegex('^latest$|^v.*')}
-                  className="text-[11px] text-slate-400 hover:text-amber-300 underline"
-                >
-                  Pick "latest" & "v*"
-                </button>
-              </>
-            )}
-          </div>
-        </div>
-
-        {availableTags.length > 0 ? (
-          <div className="space-y-2">
-            <div className="flex items-center gap-2">
-              <div className="relative flex-1">
-                <input
-                  type="text"
-                  placeholder="Filter discovered tags..."
-                  value={tagFilter}
-                  onChange={(e) => setTagFilter(e.target.value)}
-                  className="w-full pl-8 pr-3 py-1.5 rounded-lg bg-[#0a0a14] border border-white/10 text-white text-xs focus:border-amber-400 focus:outline-none"
-                />
-                <Filter className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-2.5" />
-              </div>
-            </div>
-
-            <div className="max-h-40 overflow-y-auto grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-1.5 p-2 rounded-lg bg-[#0a0a14] border border-white/5">
-              {filteredTags.map((tag) => {
-                const isSelected = selectedTags.includes(tag);
-                return (
-                  <button
-                    key={tag}
-                    type="button"
-                    onClick={() => handleToggleTag(tag)}
-                    className={`flex items-center gap-1.5 px-2 py-1 rounded text-left text-xs font-mono truncate border transition-colors ${
-                      isSelected
-                        ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 font-bold'
-                        : 'bg-white/[0.02] text-slate-400 border-white/5 hover:text-white hover:bg-white/[0.05]'
-                    }`}
-                  >
-                    {isSelected ? (
-                      <CheckSquare className="w-3 h-3 text-amber-400 flex-shrink-0" />
-                    ) : (
-                      <SquareIcon className="w-3 h-3 text-slate-600 flex-shrink-0" />
-                    )}
-                    <span className="truncate">{tag}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        ) : (
-          <div>
-            <label className="block text-[11px] font-semibold text-slate-300 mb-1">
-              Manual Tags (comma or space-separated, e.g. <code className="text-amber-400">latest, 1.25, v2.0.0</code>)
-            </label>
-            <input
-              type="text"
-              placeholder="latest, 1.0, 1.1, stable"
-              value={manualTagsInput}
-              onChange={(e) => setManualTagsInput(e.target.value)}
-              className="w-full px-3 py-2 rounded-lg bg-[#0a0a14] border border-white/10 text-white text-xs font-mono focus:border-amber-400 focus:outline-none"
-            />
-            <p className="text-[10px] text-slate-400 mt-1">
-              Tip: Click the "Tags" button next to source repo above to automatically list all remote tags.
-            </p>
-          </div>
-        )}
-
-        {/* Advanced Transfer Flags */}
-        <div className="pt-3 border-t border-white/[0.06] flex items-center justify-between flex-wrap gap-4 text-xs">
-          <div className="flex items-center gap-4 flex-wrap">
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={copyAllArch}
-                onChange={(e) => setCopyAllArch(e.target.checked)}
-                className="rounded accent-amber-500"
-              />
-              <span className="text-slate-300">
-                Copy All Architectures (<code className="text-amber-400 text-[10px]">--all</code>)
-              </span>
-            </label>
-
-            <div className="flex items-center gap-2">
-              <span className="text-slate-400">Concurrency:</span>
+            <div className="col-span-1">
+              <label className="block text-[11px] font-semibold text-slate-300 mb-1">Transport</label>
               <select
-                value={concurrency}
-                onChange={(e) => setConcurrency(parseInt(e.target.value))}
-                className="px-2 py-1 rounded bg-[#0a0a14] border border-white/10 text-white text-xs font-mono"
+                value={destTransport}
+                onChange={(e) => setDestTransport(e.target.value as TransportType)}
+                className="w-full px-2 py-2 rounded-lg bg-[#0a0a14] border border-white/10 text-white text-xs font-mono"
               >
-                <option value="1">1 Worker (Sequential)</option>
-                <option value="2">2 Concurrent Workers</option>
-                <option value="4">4 Concurrent Workers</option>
-                <option value="8">8 Concurrent Workers (Fast)</option>
+                {TRANSPORTS.map((t) => (
+                  <option key={t.value} value={t.value}>
+                    {t.label}
+                  </option>
+                ))}
               </select>
             </div>
           </div>
+
+          <label className="flex items-center gap-2 cursor-pointer pt-1">
+            <input
+              type="checkbox"
+              checked={destInsecure}
+              onChange={(e) => setDestInsecure(e.target.checked)}
+              className="rounded accent-emerald-500"
+            />
+            <span className="text-[11px] text-slate-400">
+              Destination Insecure TLS (<code className="text-emerald-400 text-[10px]">--dest-tls-verify=false</code>)
+            </span>
+          </label>
         </div>
       </div>
 
-      {/* Execution Queue & Progress */}
+      {/* MODE 1: Multi-Image List Mode UI */}
+      {batchMode === 'multi-images' && (
+        <div className="p-4 rounded-xl bg-[#131326] border border-white/[0.08] space-y-4">
+          <div className="flex items-center justify-between pb-2 border-b border-white/[0.06] flex-wrap gap-2">
+            <div>
+              <span className="text-xs font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
+                <ListPlus className="w-4 h-4" />
+                Batch Images Input Matrix ({parsedImagePairs.length} Images Detected)
+              </span>
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                Paste any list of container images (one per line). Optionally specify custom destinations using <code className="text-amber-300 text-[10px]">source -&gt; destination</code>.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setImageListText(SAMPLE_IMAGES)}
+                className="text-[11px] px-2.5 py-1 rounded bg-white/5 border border-white/10 text-amber-300 hover:bg-white/10 transition-colors flex items-center gap-1"
+              >
+                <Sparkles className="w-3 h-3" />
+                <span>Load Sample List</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setImageListText('')}
+                className="text-[11px] px-2.5 py-1 rounded bg-white/5 border border-white/10 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors flex items-center gap-1"
+              >
+                <Trash2 className="w-3 h-3" />
+                <span>Clear</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <div className="lg:col-span-2">
+              <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                Images List (one per line)
+              </label>
+              <textarea
+                rows={7}
+                value={imageListText}
+                onChange={(e) => setImageListText(e.target.value)}
+                placeholder={`alpine:latest\nredis:7-alpine\npostgres:16-alpine\nnginx:alpine\nghcr.io/org/app:v1.2.0 -> fra.ocir.io/mytenant/mirror/app:v1.2.0`}
+                className="w-full p-3 rounded-lg bg-[#0a0a14] border border-white/10 text-white text-xs font-mono focus:border-amber-400 focus:outline-none resize-y leading-relaxed"
+              />
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                  Destination Target Prefix / Namespace
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. fra.ocir.io/mytenancy/mirror"
+                  value={destRepoPrefix}
+                  onChange={(e) => setDestRepoPrefix(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg bg-[#0a0a14] border border-white/10 text-white text-xs font-mono focus:border-emerald-400 focus:outline-none"
+                />
+                <p className="text-[10px] text-slate-400 mt-1">
+                  All images will automatically be mirrored under this destination path.
+                </p>
+              </div>
+
+              {destRepoPrefix && parsedImagePairs.length > 0 && (
+                <div className="p-2.5 rounded-lg bg-emerald-950/30 border border-emerald-500/20 text-[11px] space-y-1">
+                  <div className="text-emerald-300 font-bold">Live Mapping Preview:</div>
+                  <div className="text-slate-300 font-mono text-[10px] truncate">
+                    {parsedImagePairs[0].src} &rarr;
+                  </div>
+                  <div className="text-emerald-400 font-mono text-[10px] truncate font-bold">
+                    {parsedImagePairs[0].dest ||
+                      `${destRepoPrefix.replace(/\/+$/, '')}/${
+                        parsedImagePairs[0].src.split('/').pop()
+                      }`}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODE 2: Single-Repo Multi-Tag UI */}
+      {batchMode === 'tags' && (
+        <div className="p-4 rounded-xl bg-[#131326] border border-white/[0.08] space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                Source Repository Name
+              </label>
+              <div className="flex gap-1.5">
+                <input
+                  type="text"
+                  placeholder="e.g. docker.io/library/nginx"
+                  value={srcRepo}
+                  onChange={(e) => setSrcRepo(e.target.value)}
+                  className="flex-1 px-3 py-2 rounded-lg bg-[#0a0a14] border border-white/10 text-white text-xs font-mono focus:border-amber-400 focus:outline-none"
+                />
+                <button
+                  type="button"
+                  disabled={isFetchingTags || !srcRepo.trim()}
+                  onClick={handleFetchTags}
+                  className="px-3 py-2 rounded-lg text-xs font-semibold bg-amber-500/15 text-amber-300 border border-amber-500/30 hover:bg-amber-500/25 disabled:opacity-40 transition-colors flex items-center gap-1"
+                >
+                  <Tag className="w-3.5 h-3.5" />
+                  <span>{isFetchingTags ? '...' : 'Fetch Tags'}</span>
+                </button>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                Destination Target Repository
+              </label>
+              <input
+                type="text"
+                placeholder="e.g. fra.ocir.io/mytenancy/mirror/nginx"
+                value={destRepo}
+                onChange={(e) => setDestRepo(e.target.value)}
+                className="w-full px-3 py-2 rounded-lg bg-[#0a0a14] border border-white/10 text-white text-xs font-mono focus:border-emerald-400 focus:outline-none"
+              />
+            </div>
+          </div>
+
+          {/* Tags Browser */}
+          {availableTags.length > 0 ? (
+            <div className="space-y-2 pt-2 border-t border-white/5">
+              <div className="flex items-center justify-between flex-wrap gap-2 text-xs">
+                <span className="font-bold text-white uppercase text-[11px]">
+                  Discovered Tags ({selectedTags.length} / {availableTags.length})
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedTags(availableTags)}
+                    className="text-[11px] text-amber-400 hover:underline"
+                  >
+                    Select All
+                  </button>
+                  <span className="text-slate-600">•</span>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedTags([])}
+                    className="text-[11px] text-slate-400 hover:underline"
+                  >
+                    Clear
+                  </button>
+                </div>
+              </div>
+
+              <div className="max-h-36 overflow-y-auto grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-1.5 p-2 rounded-lg bg-[#0a0a14] border border-white/5">
+                {availableTags.map((tag) => {
+                  const isSelected = selectedTags.includes(tag);
+                  return (
+                    <button
+                      key={tag}
+                      type="button"
+                      onClick={() =>
+                        setSelectedTags((prev) =>
+                          prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]
+                        )
+                      }
+                      className={`flex items-center gap-1.5 px-2 py-1 rounded text-left text-xs font-mono truncate border transition-colors ${
+                        isSelected
+                          ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 font-bold'
+                          : 'bg-white/[0.02] text-slate-400 border-white/5 hover:text-white'
+                      }`}
+                    >
+                      {isSelected ? (
+                        <CheckSquare className="w-3 h-3 text-amber-400 flex-shrink-0" />
+                      ) : (
+                        <SquareIcon className="w-3 h-3 text-slate-600 flex-shrink-0" />
+                      )}
+                      <span className="truncate">{tag}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ) : (
+            <div>
+              <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                Manual Tags (comma or space-separated)
+              </label>
+              <input
+                type="text"
+                placeholder="latest, 1.25, v2.0.0"
+                value={manualTagsInput}
+                onChange={(e) => setManualTagsInput(e.target.value)}
+                className="w-full px-3 py-2 rounded-lg bg-[#0a0a14] border border-white/10 text-white text-xs font-mono focus:border-amber-400 focus:outline-none"
+              />
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Advanced Execution Options */}
+      <div className="p-4 rounded-xl bg-[#131326] border border-white/[0.08] flex items-center justify-between flex-wrap gap-4 text-xs">
+        <label className="flex items-center gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={copyAllArch}
+            onChange={(e) => setCopyAllArch(e.target.checked)}
+            className="rounded accent-amber-500"
+          />
+          <span className="text-slate-300">
+            Copy All Architectures (<code className="text-amber-400 text-[10px]">--all</code>)
+          </span>
+        </label>
+
+        <div className="flex items-center gap-2">
+          <span className="text-slate-400">Worker Concurrency:</span>
+          <select
+            value={concurrency}
+            onChange={(e) => setConcurrency(parseInt(e.target.value))}
+            className="px-2.5 py-1 rounded bg-[#0a0a14] border border-white/10 text-white text-xs font-mono"
+          >
+            <option value="1">1 Worker (Sequential)</option>
+            <option value="2">2 Concurrent Workers</option>
+            <option value="4">4 Concurrent Workers (Recommended)</option>
+            <option value="8">8 Concurrent Workers (High Speed)</option>
+          </select>
+        </div>
+      </div>
+
+      {/* Execution Queue & Progress Section */}
       {activeItems.length > 0 && (
         <div className="p-4 rounded-xl bg-[#131326] border border-white/[0.08] space-y-4">
           <div className="flex items-center justify-between flex-wrap gap-2">
             <div className="flex items-center gap-2">
               <Zap className="w-4 h-4 text-amber-400" />
               <h2 className="text-xs font-bold uppercase tracking-wider text-white">
-                Transfer Progress ({completedCount} / {totalCount} Completed)
+                Transfer Queue ({completedCount} / {totalCount} Completed)
               </h2>
             </div>
 
@@ -547,12 +664,12 @@ export const BatchTransfer: React.FC<Props> = ({
                         <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
                       )}
 
-                      <span className="text-xs font-bold font-mono px-2 py-0.5 rounded bg-white/5 text-amber-300 border border-white/10">
-                        :{item.tag}
+                      <span className="text-xs font-bold font-mono px-2 py-0.5 rounded bg-white/5 text-amber-300 border border-white/10 truncate">
+                        {item.imageName ? `${item.imageName}:${item.tag}` : `:${item.tag}`}
                       </span>
 
                       <span className="text-[11px] font-mono text-slate-400 truncate max-w-xs">
-                        {item.destReference}
+                        &rarr; {item.destReference}
                       </span>
                     </div>
 
@@ -598,10 +715,10 @@ export const BatchTransfer: React.FC<Props> = ({
 
                   {isExpanded && (
                     <div className="p-3 rounded-lg bg-black/60 border border-white/5 space-y-2 text-xs font-mono">
-                      <div className="text-[11px] text-slate-400">
+                      <div className="text-[11px] text-slate-400 break-all">
                         <strong>Source:</strong> {item.srcReference}
                       </div>
-                      <div className="text-[11px] text-slate-400">
+                      <div className="text-[11px] text-slate-400 break-all">
                         <strong>Destination:</strong> {item.destReference}
                       </div>
                       {item.error && (
