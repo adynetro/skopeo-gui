@@ -3,6 +3,7 @@ import path from 'path';
 import { SkopeoService } from './skopeo';
 import { CredentialService } from './credentials';
 import { BatchRunner } from './batchRunner';
+import { VulnerabilityScanner } from './vulnerabilityScanner';
 import { BatchMigrationConfig, RegistryCredential, TransportType } from '../types';
 
 let mainWindow: BrowserWindow | null = null;
@@ -10,6 +11,7 @@ let mainWindow: BrowserWindow | null = null;
 const skopeo = new SkopeoService();
 const creds = new CredentialService();
 const batchRunner = new BatchRunner(skopeo, creds);
+const vulnScanner = new VulnerabilityScanner();
 
 async function createWindow() {
   mainWindow = new BrowserWindow({
@@ -117,6 +119,10 @@ function registerIpc() {
     const allCreds = creds.getAll();
     const cred = credId ? allCreds.find((c) => c.id === credId) : undefined;
     return skopeo.inspectSbom(imageRef, cred, insecure, platform);
+  });
+
+  ipcMain.handle('sbom:scan-vulns', async (_event, { imageRef, packages }) => {
+    return vulnScanner.scanSbomPackages(imageRef, packages);
   });
 
   ipcMain.handle('skopeo:list-tags', async (_event, { imageRef, credId, insecure }) => {
