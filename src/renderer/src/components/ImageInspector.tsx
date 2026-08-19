@@ -34,6 +34,17 @@ interface Props {
   onShowToast: (msg: string, success: boolean) => void;
 }
 
+const PLATFORM_PRESETS = [
+  { label: 'linux/amd64 (Linux x86_64 / Servers)', os: 'linux', arch: 'amd64' },
+  { label: 'linux/arm64 (Apple Silicon Mac / ARM64)', os: 'linux', arch: 'arm64' },
+  { label: 'linux/arm/v7 (ARM 32-bit / IoT)', os: 'linux', arch: 'arm', variant: 'v7' },
+  { label: 'linux/ppc64le (PowerPC 64-bit)', os: 'linux', arch: 'ppc64le' },
+  { label: 'linux/s390x (IBM Z / Mainframe)', os: 'linux', arch: 's390x' },
+  { label: 'linux/riscv64 (RISC-V 64-bit)', os: 'linux', arch: 'riscv64' },
+  { label: 'windows/amd64 (Windows Container)', os: 'windows', arch: 'amd64' },
+  { label: '(Auto / Host Native)', os: '', arch: '' },
+];
+
 export const ImageInspector: React.FC<Props> = ({
   credentials,
   onShowToast,
@@ -41,6 +52,7 @@ export const ImageInspector: React.FC<Props> = ({
   const [imageRef, setImageRef] = useState('');
   const [credId, setCredId] = useState('');
   const [insecure, setInsecure] = useState(false);
+  const [selectedPlatformIndex, setSelectedPlatformIndex] = useState(0); // default to linux/amd64
   const [isInspecting, setIsInspecting] = useState(false);
   const [inspection, setInspection] = useState<ImageInspection | null>(null);
   const [activeTab, setActiveTab] = useState<'overview' | 'layers' | 'env' | 'labels' | 'tags' | 'architectures' | 'raw'>('overview');
@@ -49,30 +61,30 @@ export const ImageInspector: React.FC<Props> = ({
   const [isDeleting, setIsDeleting] = useState(false);
   const [tagFilter, setTagFilter] = useState('');
   const [platforms, setPlatforms] = useState<ManifestPlatform[]>([]);
-  const [isFetchingPlatforms, setIsFetchingPlatforms] = useState(false);
 
-  const handleInspect = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!imageRef.trim()) {
-      onShowToast('Please specify an image reference (e.g. docker://docker.io/library/alpine:latest)', false);
-      return;
-    }
+  const currentPreset = PLATFORM_PRESETS[selectedPlatformIndex];
 
+  const doInspect = async (targetRef: string, platformOverride?: { os: string; arch: string; variant?: string }) => {
     setIsInspecting(true);
     setInspection(null);
     setPlatforms([]);
 
     try {
-      const fullRef = imageRef.includes('://') ? imageRef.trim() : `docker://${imageRef.trim()}`;
+      const fullRef = targetRef.includes('://') ? targetRef.trim() : `docker://${targetRef.trim()}`;
+      const platformToUse = platformOverride !== undefined
+        ? (platformOverride.os && platformOverride.arch ? platformOverride : undefined)
+        : (currentPreset.os && currentPreset.arch ? { os: currentPreset.os, arch: currentPreset.arch, variant: currentPreset.variant } : undefined);
+
       const data = await (window as any).skopeoApi.inspectImage(
         fullRef,
         credId || undefined,
-        insecure
+        insecure,
+        platformToUse
       );
       setInspection(data);
       setActiveTab('overview');
 
-      // Also fetch raw manifest for multi-arch detection
+      // Fetch raw manifest for multi-arch detection
       try {
         const raw = await (window as any).skopeoApi.inspectRaw(
           fullRef,
@@ -83,15 +95,32 @@ export const ImageInspector: React.FC<Props> = ({
           setPlatforms(raw.manifests);
         }
       } catch {
-        // Not a manifest list, single-arch image
+        // Single arch or error
       }
 
-      onShowToast('Image inspection completed.', true);
+      onShowToast(`Image inspection completed for ${data.Os || 'linux'}/${data.Architecture || 'amd64'}.`, true);
     } catch (err: any) {
       onShowToast(err.message || 'Inspection failed', false);
     } finally {
       setIsInspecting(false);
     }
+  };
+
+  const handleInspect = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!imageRef.trim()) {
+      onShowToast('Please specify an image reference (e.g. docker://docker.io/library/alpine:latest)', false);
+      return;
+    }
+    await doInspect(imageRef);
+  };
+
+  const handleSwitchPlatform = async (p: { os: string; architecture: string; variant?: string }) => {
+    const foundIdx = PLATFORM_PRESETS.findIndex((pr) => pr.os === p.os && pr.arch === p.architecture);
+    if (foundIdx >= 0) {
+      setSelectedPlatformIndex(foundIdx);
+    }
+    await doInspect(imageRef, { os: p.os, arch: p.architecture, variant: p.variant });
   };
 
   const handleFetchTags = async () => {
@@ -148,14 +177,14 @@ export const ImageInspector: React.FC<Props> = ({
             Image & Manifest Inspector
           </h1>
           <p className="text-xs text-slate-400 mt-1">
-            Inspect remote container images without pulling them. View layers, architectures, digests, environment variables, labels, and tags.
+            Inspect remote container images across platforms without pulling them. View layers, multi-arch manifests, environment variables, labels, and tags.
           </p>
         </div>
       </div>
 
       {/* Query Form */}
       <form onSubmit={handleInspect} className="p-4 rounded-xl bg-[#131326] border border-white/[0.08] space-y-4">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
           <div className="md:col-span-2">
             <label className="block text-[11px] font-semibold text-slate-300 mb-1">
               Image Reference
@@ -168,6 +197,23 @@ export const ImageInspector: React.FC<Props> = ({
               onChange={(e) => setImageRef(e.target.value)}
               className="w-full px-3 py-2 rounded-lg bg-[#0a0a14] border border-white/10 text-white text-xs font-mono focus:border-amber-400 focus:outline-none"
             />
+          </div>
+
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+              Target Architecture
+            </label>
+            <select
+              value={selectedPlatformIndex}
+              onChange={(e) => setSelectedPlatformIndex(parseInt(e.target.value))}
+              className="w-full px-3 py-2 rounded-lg bg-[#0a0a14] border border-white/10 text-amber-300 text-xs font-mono focus:border-amber-400 focus:outline-none"
+            >
+              {PLATFORM_PRESETS.map((p, idx) => (
+                <option key={idx} value={idx}>
+                  {p.label}
+                </option>
+              ))}
+            </select>
           </div>
 
           <div>
@@ -227,8 +273,17 @@ export const ImageInspector: React.FC<Props> = ({
               disabled={isInspecting || !imageRef.trim()}
               className="flex items-center gap-1.5 px-5 py-2 rounded-lg text-xs font-bold bg-amber-500 text-black hover:bg-amber-400 disabled:opacity-50 transition-colors shadow-[0_0_12px_rgba(251,191,36,0.25)]"
             >
-              <Search className="w-4 h-4" />
-              <span>{isInspecting ? 'Inspecting...' : 'Inspect Image'}</span>
+              {isInspecting ? (
+                <>
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                  <span>Inspecting...</span>
+                </>
+              ) : (
+                <>
+                  <Search className="w-4 h-4" />
+                  <span>Inspect Image</span>
+                </>
+              )}
             </button>
           </div>
         </div>
@@ -240,8 +295,13 @@ export const ImageInspector: React.FC<Props> = ({
           {/* Header with image info and tabs */}
           <div className="flex items-center justify-between border-b border-white/[0.08] pb-3 flex-wrap gap-2">
             <div>
-              <h2 className="text-base font-bold text-white font-mono break-all">
-                {inspection?.Name || imageRef}
+              <h2 className="text-base font-bold text-white font-mono break-all flex items-center gap-2">
+                <span>{inspection?.Name || imageRef}</span>
+                {inspection && (
+                  <span className="px-2 py-0.5 rounded text-[11px] font-mono font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                    {inspection.Os || 'linux'}/{inspection.Architecture || 'amd64'}
+                  </span>
+                )}
               </h2>
               {inspection?.Digest && (
                 <div className="flex items-center gap-2 text-xs font-mono text-slate-400 mt-1">
@@ -330,8 +390,9 @@ export const ImageInspector: React.FC<Props> = ({
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 <div className="p-3 rounded-lg bg-[#0a0a14] border border-white/5">
                   <div className="text-[10px] text-slate-400 uppercase font-bold">Architecture / OS</div>
-                  <div className="text-sm font-bold text-amber-300 mt-1 font-mono">
-                    {inspection.Os || 'linux'} / {inspection.Architecture || 'amd64'}
+                  <div className="text-sm font-bold text-cyan-300 mt-1 font-mono flex items-center gap-1.5">
+                    <Monitor className="w-4 h-4 text-cyan-400" />
+                    <span>{inspection.Os || 'linux'} / {inspection.Architecture || 'amd64'}</span>
                   </div>
                 </div>
 
@@ -364,22 +425,35 @@ export const ImageInspector: React.FC<Props> = ({
                 </div>
               )}
 
-              {/* Multi-arch badge */}
+              {/* Multi-arch banner */}
               {platforms.length > 0 && (
-                <div className="p-3 rounded-lg bg-cyan-950/30 border border-cyan-500/20">
-                  <div className="flex items-center gap-2 text-xs font-bold text-cyan-300">
-                    <Monitor className="w-4 h-4" />
-                    Multi-Architecture Image — {platforms.length} platforms available
+                <div className="p-3.5 rounded-lg bg-cyan-950/30 border border-cyan-500/20 space-y-2">
+                  <div className="flex items-center justify-between flex-wrap gap-2 text-xs font-bold text-cyan-300">
+                    <div className="flex items-center gap-2">
+                      <Monitor className="w-4 h-4" />
+                      <span>Multi-Architecture Image — {platforms.length} Platforms Available</span>
+                    </div>
+                    <span className="text-[11px] text-slate-400">Click any platform to inspect its layers</span>
                   </div>
                   <div className="flex flex-wrap gap-1.5 mt-2">
-                    {platforms.map((p, i) => (
-                      <span
-                        key={i}
-                        className="px-2 py-0.5 rounded text-[10px] font-mono bg-cyan-500/10 border border-cyan-500/20 text-cyan-300"
-                      >
-                        {p.platform ? `${p.platform.os}/${p.platform.architecture}${p.platform.variant ? `/${p.platform.variant}` : ''}` : `manifest-${i}`}
-                      </span>
-                    ))}
+                    {platforms.map((p, i) => {
+                      const platLabel = p.platform ? `${p.platform.os}/${p.platform.architecture}${p.platform.variant ? `/${p.platform.variant}` : ''}` : `manifest-${i}`;
+                      const isCurrent = inspection.Os === p.platform?.os && inspection.Architecture === p.platform?.architecture;
+                      return (
+                        <button
+                          key={i}
+                          type="button"
+                          onClick={() => p.platform && handleSwitchPlatform(p.platform)}
+                          className={`px-2.5 py-1 rounded text-[11px] font-mono font-semibold border transition-all ${
+                            isCurrent
+                              ? 'bg-cyan-500 text-black border-cyan-400 font-bold shadow-[0_0_10px_rgba(6,182,212,0.3)]'
+                              : 'bg-[#0a0a14] text-cyan-300 border-cyan-500/30 hover:bg-cyan-500/20'
+                          }`}
+                        >
+                          {platLabel} {isCurrent ? '(Active)' : ''}
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
               )}
@@ -408,7 +482,7 @@ export const ImageInspector: React.FC<Props> = ({
           {activeTab === 'layers' && inspection && (
             <div className="space-y-2">
               <div className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-                Image Layer Digests
+                Image Layer Digests ({inspection.Os || 'linux'}/{inspection.Architecture || 'amd64'})
               </div>
               <div className="space-y-1.5 max-h-80 overflow-y-auto">
                 {(inspection.Layers || []).map((layer, index) => (
@@ -503,7 +577,7 @@ export const ImageInspector: React.FC<Props> = ({
             </div>
           )}
 
-          {/* Tags Tab — always rendered when tags are available, even without inspection */}
+          {/* Tags Tab */}
           {activeTab === 'tags' && (
             <div className="space-y-3">
               <div className="flex items-center justify-between flex-wrap gap-2">
@@ -553,7 +627,7 @@ export const ImageInspector: React.FC<Props> = ({
           {activeTab === 'architectures' && platforms.length > 0 && (
             <div className="space-y-3">
               <div className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-                Available Architectures & Platforms ({platforms.length})
+                Available Architectures & Platforms in Image Manifest Index ({platforms.length})
               </div>
               <div className="space-y-2 max-h-96 overflow-y-auto">
                 {platforms.map((manifest, index) => {
@@ -562,11 +636,16 @@ export const ImageInspector: React.FC<Props> = ({
                     ? `${p.os}/${p.architecture}${p.variant ? '/' + p.variant : ''}`
                     : `unknown-${index}`;
                   const osVersion = p?.['os.version'];
+                  const isCurrent = inspection?.Os === p?.os && inspection?.Architecture === p?.architecture;
 
                   return (
                     <div
                       key={index}
-                      className="p-3 rounded-lg bg-[#0a0a14] border border-white/5 space-y-2"
+                      className={`p-3 rounded-lg border space-y-2 ${
+                        isCurrent
+                          ? 'bg-cyan-950/40 border-cyan-500/40 text-cyan-300'
+                          : 'bg-[#0a0a14] border-white/5 text-slate-300'
+                      }`}
                     >
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
@@ -574,6 +653,11 @@ export const ImageInspector: React.FC<Props> = ({
                           <span className="text-sm font-bold font-mono text-white">
                             {platformLabel}
                           </span>
+                          {isCurrent && (
+                            <span className="text-[10px] px-1.5 py-0.2 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 font-bold">
+                              Currently Active
+                            </span>
+                          )}
                           {osVersion && (
                             <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/5 border border-white/10 text-slate-400 font-mono">
                               {osVersion}
@@ -585,6 +669,15 @@ export const ImageInspector: React.FC<Props> = ({
                             <span className="text-[10px] text-slate-500 font-mono">
                               {(manifest.size / 1024 / 1024).toFixed(1)} MB
                             </span>
+                          )}
+                          {!isCurrent && p && (
+                            <button
+                              type="button"
+                              onClick={() => handleSwitchPlatform(p)}
+                              className="px-2.5 py-1 rounded text-[11px] font-bold bg-cyan-500/10 border border-cyan-500/20 text-cyan-300 hover:bg-cyan-500/20"
+                            >
+                              Inspect Layers
+                            </button>
                           )}
                           <button
                             onClick={() => copyToClipboard(manifest.digest)}
