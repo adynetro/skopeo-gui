@@ -69,6 +69,20 @@ export const SettingsModal: React.FC<Props> = ({
             </div>
           </div>
 
+          <div className="p-3 rounded-lg bg-[#0a0a14] border border-white/5 space-y-1">
+            <div className="text-xs text-slate-400 font-bold uppercase">macOS Docker Config Status</div>
+            <div className="flex items-center gap-2 mt-1">
+              <span className="text-xs font-mono text-cyan-400 flex items-center gap-1.5 font-bold">
+                <CheckCircle2 className="w-4 h-4" />
+                ~/.docker/config.json (Keychain store: desktop)
+              </span>
+            </div>
+            <div className="text-[11px] text-slate-500 font-mono break-all mt-1">
+              Supports docker-credential-desktop, osxkeychain, and Kubernetes secrets.
+            </div>
+          </div>
+
+
           <div>
             <label className="block text-xs font-semibold text-slate-300 mb-1">
               Custom Skopeo Binary Path (Optional)

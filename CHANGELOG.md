@@ -7,9 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.1.0] - 2026-08-20
+
+### 🚀 Highlights in 1.1.0
+
+#### 1. 🔑 Full macOS Keychain & Docker Desktop `dockerconfig.json` Integration
+- **Automatic Helper Discovery**: Discovers and interacts with `docker-credential-desktop`, `docker-credential-osxkeychain`, and domain-specific `credHelpers`.
+- **macOS Keychain Decryption**: Queries and extracts real passwords/tokens from the macOS Keychain rather than failing on empty auth objects in `~/.docker/config.json`.
+- **1-Click Import & Status**: Live Docker config detection card showing configured registry count and 1-click import.
+- **Custom File Chooser & Paste JSON**: Import custom `.dockerconfigjson` files from disk or paste raw JSON / base64 secret tokens.
+- **Multi-Format Export**: Export the vault to standard `dockerconfig.json`, Kubernetes `ImagePullSecret` YAML, or base64 token.
+- **Interactive Guide**: Built-in macOS Docker & Keychain explanation guide.
+
+#### 2. 🛡️ Precise CVSS v3.1 / v3.0 / v4.0 Vulnerability Severity Scoring
+- **Full FIRST / NIST CVSS v3.1 Formula**: Implemented exact mathematical base score calculator ($0.0 - 10.0$) from CVSS vector strings.
+- **Multi-Version CVSS & Metric Support**: Calculates exact scores for CVSS v3.1, v3.0, v2.0, and evaluates CVSS v4.0 vectors.
+- **Accurate Severity Bucketing**: Properly classifies vulnerabilities into **CRITICAL** ($\ge 9.0$), **HIGH** ($7.0 - 8.9$), **MEDIUM** ($4.0 - 6.9$), and **LOW** ($0.1 - 3.9$) instead of defaulting to Medium.
+- **Advisory & Ecosystem Urgency**: Resolves GitHub Advisory severities, Debian/Ubuntu urgency ratings, and contextual heuristics.
+- **CVSS Score Badges in UI**: Displays formatted scores (e.g. `CVSS: 8.6 (CVSS:3.1)`) on vulnerability cards.
+
+---
+
 ## [1.0.0] - 2026-08-20
 
 ### 🚀 Initial Release of Skopeo GUI for macOS (Apple Silicon / arm64)
+
 
 Skopeo GUI is a fast, native desktop interface for **[Skopeo](https://github.com/containers/skopeo)** and **[Sigstore Cosign](https://github.com/sigstore/cosign)**, designed to manage, replicate, inspect, and sign container images without requiring a local Docker daemon.
 

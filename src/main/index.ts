@@ -1,11 +1,13 @@
-import { app, BrowserWindow, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, shell, dialog } from 'electron';
 import path from 'path';
+import fs from 'fs';
 import { SkopeoService } from './skopeo';
 import { CredentialService } from './credentials';
 import { BatchRunner } from './batchRunner';
 import { VulnerabilityScanner } from './vulnerabilityScanner';
 import { CosignService } from './cosign';
 import { BatchMigrationConfig, RegistryCredential, TransportType } from '../types';
+
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -75,7 +77,7 @@ function registerIpc() {
     return true;
   });
 
-  // Credentials
+  // Credentials & Docker Config
   ipcMain.handle('creds:get-all', async () => {
     return creds.getAll();
   });
@@ -100,9 +102,63 @@ function registerIpc() {
     }
   });
 
-  ipcMain.handle('creds:import-docker', async () => {
-    return creds.importDockerConfig();
+  ipcMain.handle('creds:get-docker-info', async () => {
+    return creds.getDockerConfigInfo();
   });
+
+  ipcMain.handle('creds:import-docker', async (_event, customPath?: string) => {
+    return creds.importDockerConfig(customPath);
+  });
+
+  ipcMain.handle('creds:import-raw-docker', async (_event, rawJson: string) => {
+    return creds.importFromRawJson(rawJson);
+  });
+
+  ipcMain.handle('creds:pick-and-import-docker-file', async () => {
+    if (!mainWindow) return null;
+    const res = await dialog.showOpenDialog(mainWindow, {
+      title: 'Select Docker Config or Kubernetes Secret File',
+      filters: [
+        { name: 'Docker / JSON Config', extensions: ['json', 'dockerconfigjson', 'txt'] },
+        { name: 'All Files', extensions: ['*'] },
+      ],
+      properties: ['openFile'],
+    });
+
+    if (!res.canceled && res.filePaths.length > 0) {
+      const selectedPath = res.filePaths[0];
+      return creds.importDockerConfig(selectedPath);
+    }
+    return null;
+  });
+
+  ipcMain.handle('creds:export-docker-json', async () => {
+    return creds.exportDockerConfig();
+  });
+
+  ipcMain.handle('creds:export-docker-file', async () => {
+    if (!mainWindow) return null;
+    const res = await dialog.showSaveDialog(mainWindow, {
+      title: 'Export Registry Vault to dockerconfig.json',
+      defaultPath: 'dockerconfig.json',
+      filters: [
+        { name: 'JSON Files', extensions: ['json'] },
+        { name: 'All Files', extensions: ['*'] },
+      ],
+    });
+
+    if (!res.canceled && res.filePath) {
+      const exported = creds.exportDockerConfig();
+      fs.writeFileSync(res.filePath, exported.json, 'utf-8');
+      return {
+        success: true,
+        filePath: res.filePath,
+        registriesCount: exported.registriesCount,
+      };
+    }
+    return null;
+  });
+
 
   // Skopeo Operations
   ipcMain.handle('skopeo:inspect', async (_event, { imageRef, credId, insecure, platform }) => {

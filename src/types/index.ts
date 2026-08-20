@@ -155,6 +155,43 @@ export interface AppSettings {
   tempDirectory: string;
 }
 
+export interface DockerConfigInfo {
+  exists: boolean;
+  path: string;
+  credsStore?: string;
+  credHelpers?: Record<string, string>;
+  registriesCount: number;
+  registriesList: string[];
+  helperAvailable: boolean;
+  helperPath?: string;
+  rawAuthsCount: number;
+}
+
+export interface DockerImportDetail {
+  domain: string;
+  username: string;
+  source: string;
+  status: 'added' | 'updated' | 'skipped';
+}
+
+export interface DockerImportResult {
+  success: boolean;
+  imported: number;
+  updated: number;
+  skipped: number;
+  message: string;
+  configPath?: string;
+  credsStore?: string;
+  details: DockerImportDetail[];
+}
+
+export interface DockerExportResult {
+  json: string;
+  base64DockerConfig: string;
+  k8sSecretYaml: string;
+  registriesCount: number;
+}
+
 export interface LogEntry {
   id: string;
   timestamp: string;
@@ -206,4 +243,5 @@ export interface CosignSignResult {
   keyId?: string;
   error?: string;
 }
+
 

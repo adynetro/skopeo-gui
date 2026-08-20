@@ -875,10 +875,12 @@ export const SbomInspector: React.FC<Props> = ({ credentials, onShowToast }) => 
                                 </span>
                               )}
                               {vuln.score && (
-                                <span className="font-mono text-[10px] text-amber-400/80">
-                                  Vector: {vuln.score}
+                                <span className="inline-flex items-center gap-1 font-mono text-[10px] px-1.5 py-0.5 rounded bg-white/5 border border-white/10 text-amber-300">
+                                  <span>CVSS:</span>
+                                  <strong>{vuln.score}</strong>
                                 </span>
                               )}
+
                             </div>
 
                             {vuln.referenceUrls && vuln.referenceUrls.length > 0 && (

@@ -6,12 +6,18 @@ export const skopeoApi = {
   getSystemInfo: () => ipcRenderer.invoke('system:get-info'),
   saveSettings: (settings: any) => ipcRenderer.invoke('system:save-settings', settings),
 
-  // Credentials
+  // Credentials & Docker Config
   getCredentials: () => ipcRenderer.invoke('creds:get-all'),
   saveCredential: (cred: any) => ipcRenderer.invoke('creds:save', cred),
   deleteCredential: (id: string) => ipcRenderer.invoke('creds:delete', id),
   testCredential: (cred: RegistryCredential) => ipcRenderer.invoke('creds:test', cred),
-  importDockerConfig: () => ipcRenderer.invoke('creds:import-docker'),
+  getDockerConfigInfo: () => ipcRenderer.invoke('creds:get-docker-info'),
+  importDockerConfig: (customPath?: string) => ipcRenderer.invoke('creds:import-docker', customPath),
+  importRawDockerConfig: (rawJson: string) => ipcRenderer.invoke('creds:import-raw-docker', rawJson),
+  pickAndImportDockerFile: () => ipcRenderer.invoke('creds:pick-and-import-docker-file'),
+  exportDockerConfigJson: () => ipcRenderer.invoke('creds:export-docker-json'),
+  exportDockerConfigFile: () => ipcRenderer.invoke('creds:export-docker-file'),
+
 
   // Skopeo Operations
   inspectImage: (imageRef: string, credId?: string, insecure?: boolean, platform?: { os?: string; arch?: string; variant?: string }) =>
