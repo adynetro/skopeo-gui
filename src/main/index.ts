@@ -91,16 +91,9 @@ function registerIpc() {
   });
 
   ipcMain.handle('creds:test', async (_event, cred: RegistryCredential) => {
-    try {
-      const testImage = cred.domain === 'docker.io'
-        ? 'docker://docker.io/library/alpine:latest'
-        : `docker://${cred.domain}`;
-      await skopeo.listTags(testImage, cred, cred.insecure);
-      return { success: true, message: 'Authentication verified successfully!' };
-    } catch (err: any) {
-      return { success: false, message: err.message || 'Authentication check failed' };
-    }
+    return skopeo.testConnection(cred);
   });
+
 
   ipcMain.handle('creds:get-docker-info', async () => {
     return creds.getDockerConfigInfo();

@@ -1,6 +1,8 @@
 import { spawn, execFile } from 'child_process';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
+
 import { promisify } from 'util';
 import { ImageInspection, RegistryCredential, SbomInspection, SbomPackage, TransportType } from '../types';
 
@@ -479,4 +481,117 @@ export class SkopeoService {
 
     return { succeeded, failed };
   }
+
+  public async testConnection(
+    cred: RegistryCredential
+  ): Promise<{ success: boolean; message: string }> {
+    const bin = await this.getBinPath();
+    const rawDomain = (cred.domain || '').trim().replace(/^https?:\/\//, '').replace(/\/+$/, '');
+    if (!rawDomain) {
+      return { success: false, message: 'Registry domain is required' };
+    }
+
+    const server = rawDomain.split('/')[0];
+    const hasRepoPath = rawDomain.includes('/');
+
+    if (cred.isAnonymous) {
+      // Anonymous connection test
+      try {
+        const testTarget = hasRepoPath
+          ? `docker://${rawDomain}`
+          : (server === 'docker.io' ? 'docker://docker.io/library/alpine:latest' : `docker://${server}`);
+
+        if (hasRepoPath || server === 'docker.io') {
+          await this.listTags(testTarget, cred, cred.insecure);
+        }
+        return { success: true, message: `Anonymous connection to ${server} verified!` };
+      } catch {
+        return { success: true, message: `Anonymous registry access configured for ${server}` };
+      }
+    }
+
+    if (!cred.username || !cred.password) {
+      return { success: false, message: 'Username and password/token are required for authenticated access.' };
+    }
+
+    // 1. Primary test: Native skopeo login on server host
+    const tmpAuth = path.join(
+      os.tmpdir(),
+      `skopeo-auth-${Date.now()}-${Math.random().toString(36).substring(2, 7)}.json`
+    );
+    try {
+      fs.writeFileSync(tmpAuth, '{}');
+    } catch {}
+
+    const loginPromise = new Promise<{ success: boolean; message: string }>((resolve) => {
+      const args = [
+        'login',
+        '--authfile',
+        tmpAuth,
+        `--tls-verify=${!cred.insecure}`,
+        '-u',
+        cred.username,
+        '--password-stdin',
+        server,
+      ];
+
+      const proc = spawn(bin, args);
+      let stdout = '';
+      let stderr = '';
+
+      proc.stdout.on('data', (d) => (stdout += d));
+      proc.stderr.on('data', (d) => (stderr += d));
+
+      proc.stdin.write(cred.password + '\n');
+      proc.stdin.end();
+
+      proc.on('close', (code) => {
+        try {
+          if (fs.existsSync(tmpAuth)) fs.unlinkSync(tmpAuth);
+        } catch {}
+
+        if (code === 0) {
+          resolve({ success: true, message: `Authentication verified successfully with ${server}!` });
+        } else {
+          let errText = (stderr || stdout || '')
+            .replace(/time="[^"]*"\s+level=\w+\s+msg="/g, '')
+            .replace(/"\s*$/g, '')
+            .trim();
+
+          if (
+            errText.includes('invalid username/password') ||
+            errText.includes('unauthorized') ||
+            errText.includes('401')
+          ) {
+            errText = `Invalid username or password/token for ${server}.`;
+          } else if (
+            errText.includes('requested access to the resource is denied') ||
+            errText.includes('403')
+          ) {
+            errText = `Access denied by ${server}. Verify that user/token permissions are active.`;
+          }
+
+          resolve({ success: false, message: errText || `Login test failed for ${server}` });
+        }
+      });
+    });
+
+    const loginResult = await loginPromise;
+    if (loginResult.success) {
+      return loginResult;
+    }
+
+    // 2. Fallback: If user specified a specific repository path (e.g. OCIR/ECR tenancy repo), test querying that repo
+    if (hasRepoPath) {
+      try {
+        await this.listTags(`docker://${rawDomain}`, cred, cred.insecure);
+        return { success: true, message: `Authentication verified successfully for ${rawDomain}!` };
+      } catch {
+        return loginResult;
+      }
+    }
+
+    return loginResult;
+  }
 }
+

@@ -7,7 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.1.1] - 2026-08-20
+
+### 🔧 Fixes & Enhancements
+- **Fix Registry Connection Test (HTTP 400 Bad Request)**: Switched the connection test to use native `skopeo login` challenge-response protocol instead of querying `/tags/list` without a repository path.
+- **Repository Path Support**: Enhanced connection testing to support both global server roots and scoped tenancy/namespace paths (e.g. Oracle Cloud OCIR `docker.io/myorg/myrepo`).
+- **Human-Readable Error Messages**: Clear error messages for invalid passwords, access permission issues, or network timeouts.
+
+---
+
 ## [1.1.0] - 2026-08-20
+
 
 ### 🚀 Highlights in 1.1.0
 
