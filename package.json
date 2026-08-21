@@ -1,6 +1,6 @@
 {
   "name": "skopeo-gui",
-  "version": "1.2.2",
+  "version": "1.2.3",
   "description": "Mac Apple Silicon GUI for Skopeo - Batch Container Image Migration & Credential Manager",
 
 

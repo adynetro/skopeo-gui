@@ -23,6 +23,10 @@ import {
   Plus,
   Sparkles,
   HelpCircle,
+  Cpu,
+  Sliders,
+  ShieldCheck,
+  Info,
 } from 'lucide-react';
 import { BatchItem, BatchMigrationConfig, ImageTransferPair, RegistryCredential, TransportType } from '../../../types';
 
@@ -42,6 +46,19 @@ const TRANSPORTS: { value: TransportType; label: string; prefix: string }[] = [
   { value: 'oci-archive', label: 'OCI Archive (.tar)', prefix: 'oci-archive:' },
   { value: 'docker-archive', label: 'Docker Archive (.tar)', prefix: 'docker-archive:' },
   { value: 'docker-daemon', label: 'Docker Daemon', prefix: 'docker-daemon:' },
+];
+
+const ARCH_OPTIONS = [
+  { value: 'all', label: 'All Architectures (--all)', description: 'Full Multi-Arch Manifest List (All Images & Platforms)' },
+  { value: 'linux/amd64', label: 'linux/amd64', description: 'Linux 64-bit x86 (Intel / AMD Servers & Desktops)' },
+  { value: 'linux/arm64', label: 'linux/arm64', description: 'Linux 64-bit ARM (Apple Silicon Mac / AWS Graviton / Ampere)' },
+  { value: 'linux/arm/v7', label: 'linux/arm/v7', description: 'Linux 32-bit ARM (Raspberry Pi 2/3 / IoT)' },
+  { value: 'linux/ppc64le', label: 'linux/ppc64le', description: 'Linux 64-bit PowerPC (IBM POWER)' },
+  { value: 'linux/s390x', label: 'linux/s390x', description: 'Linux IBM Z / Mainframe' },
+  { value: 'linux/riscv64', label: 'linux/riscv64', description: 'Linux 64-bit RISC-V' },
+  { value: 'windows/amd64', label: 'windows/amd64', description: 'Windows Container 64-bit' },
+  { value: 'auto', label: 'Host Native (Auto)', description: 'Default machine architecture (no override flags)' },
+  { value: 'custom', label: 'Custom Platform...', description: 'Specify custom OS, Architecture & Variant' },
 ];
 
 const SAMPLE_IMAGES = `docker.io/library/alpine:latest
@@ -84,13 +101,50 @@ export const BatchTransfer: React.FC<Props> = ({
   const [tagFilter, setTagFilter] = useState('');
   const [manualTagsInput, setManualTagsInput] = useState('');
 
+  // Architecture & Platform Picker state
+  const [archSelection, setArchSelection] = useState<string>('all');
+  const [customOs, setCustomOs] = useState<string>('linux');
+  const [customArch, setCustomArch] = useState<string>('amd64');
+  const [customVariant, setCustomVariant] = useState<string>('');
+
+  // Manifest Conversion & Digest options
+  // Default disableConversion to TRUE so in-toto attestation manifests don't fail conversion
+  const [disableConversion, setDisableConversion] = useState<boolean>(true);
+  const [manifestFormat, setManifestFormat] = useState<'v2s2' | 'oci' | 'v2s1'>('v2s2');
+  const [preserveDigests, setPreserveDigests] = useState<boolean>(false);
+
   // General options
-  const [copyAllArch, setCopyAllArch] = useState(true);
   const [concurrency, setConcurrency] = useState(2);
-  const [format, setFormat] = useState<'v2s1' | 'v2s2' | 'oci' | undefined>('v2s2');
 
   // UI state
   const [expandedItemId, setExpandedItemId] = useState<string | null>(null);
+
+  // Selected Destination Credential Helper
+  const selectedDestCred = credentials.find((c) => c.id === destCredId);
+  const selectedSrcCred = credentials.find((c) => c.id === srcCredId);
+
+  // When user selects a destination credential, auto-fill destination target with credential domain
+  const handleDestCredChange = (newCredId: string) => {
+    setDestCredId(newCredId);
+    if (newCredId) {
+      const cred = credentials.find((c) => c.id === newCredId);
+      if (cred && cred.domain) {
+        const cleanDomain = cred.domain.replace(/^https?:\/\//, '').replace(/\/+$/, '').trim();
+        if (cleanDomain) {
+          setDestRepoPrefix(cleanDomain);
+          if (batchMode === 'tags') {
+            if (srcRepo) {
+              const cleanSrc = srcRepo.trim().replace(/^([a-z-]+:\/\/)/, '');
+              const lastPart = cleanSrc.split('/').pop() || '';
+              setDestRepo(lastPart ? `${cleanDomain}/${lastPart}` : cleanDomain);
+            } else {
+              setDestRepo(cleanDomain);
+            }
+          }
+        }
+      }
+    }
+  };
 
   // Parse multi-image lines
   const parsedImagePairs: ImageTransferPair[] = imageListText
@@ -131,6 +185,30 @@ export const BatchTransfer: React.FC<Props> = ({
   };
 
   const handleStartBatch = () => {
+    let copyAllArchitectures = false;
+    let overrideArch: string | undefined = undefined;
+    let overrideOs: string | undefined = undefined;
+    let overrideVariant: string | undefined = undefined;
+
+    if (archSelection === 'all') {
+      copyAllArchitectures = true;
+    } else if (archSelection === 'auto') {
+      copyAllArchitectures = false;
+    } else if (archSelection === 'custom') {
+      copyAllArchitectures = false;
+      overrideOs = customOs.trim() || undefined;
+      overrideArch = customArch.trim() || undefined;
+      overrideVariant = customVariant.trim() || undefined;
+    } else {
+      copyAllArchitectures = false;
+      const parts = archSelection.split('/');
+      overrideOs = parts[0] || undefined;
+      overrideArch = parts[1] || undefined;
+      overrideVariant = parts[2] || undefined;
+    }
+
+    const format = disableConversion ? undefined : manifestFormat;
+
     if (batchMode === 'multi-images') {
       if (parsedImagePairs.length === 0) {
         onShowToast('Please enter at least one image in the list.', false);
@@ -151,7 +229,11 @@ export const BatchTransfer: React.FC<Props> = ({
         destTransport,
         destRepo: destRepoPrefix.trim(),
         imagesList: parsedImagePairs,
-        copyAllArchitectures: copyAllArch,
+        copyAllArchitectures,
+        overrideArch,
+        overrideOs,
+        overrideVariant,
+        preserveDigests,
         srcInsecure,
         destInsecure,
         format,
@@ -190,7 +272,11 @@ export const BatchTransfer: React.FC<Props> = ({
         srcRepo: srcRepo.trim(),
         destRepo: destRepo.trim(),
         selectedTags: finalTags,
-        copyAllArchitectures: copyAllArch,
+        copyAllArchitectures,
+        overrideArch,
+        overrideOs,
+        overrideVariant,
+        preserveDigests,
         srcInsecure,
         destInsecure,
         format,
@@ -352,7 +438,7 @@ export const BatchTransfer: React.FC<Props> = ({
               </label>
               <select
                 value={destCredId}
-                onChange={(e) => setDestCredId(e.target.value)}
+                onChange={(e) => handleDestCredChange(e.target.value)}
                 className="w-full px-3 py-2 rounded-lg bg-[#0a0a14] border border-white/10 text-white text-xs focus:border-emerald-400 focus:outline-none"
               >
                 <option value="">(Custom / Unauthenticated / Anonymous)</option>
@@ -444,9 +530,25 @@ export const BatchTransfer: React.FC<Props> = ({
 
             <div className="space-y-3">
               <div>
-                <label className="block text-[11px] font-semibold text-slate-300 mb-1">
-                  Destination Target Prefix / Namespace
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-[11px] font-semibold text-slate-300">
+                    Destination Target Prefix / Namespace
+                  </label>
+                  {selectedDestCred?.domain && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const clean = selectedDestCred.domain.replace(/^https?:\/\//, '').replace(/\/+$/, '').trim();
+                        setDestRepoPrefix(clean);
+                      }}
+                      className="text-[10px] text-emerald-400 hover:text-emerald-300 font-mono flex items-center gap-1 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20"
+                      title="Auto-fill destination target from selected credential domain"
+                    >
+                      <Sparkles className="w-2.5 h-2.5" />
+                      <span>Use Credential Domain</span>
+                    </button>
+                  )}
+                </div>
                 <input
                   type="text"
                   placeholder="e.g. docker.io/myorg"
@@ -507,9 +609,31 @@ export const BatchTransfer: React.FC<Props> = ({
             </div>
 
             <div>
-              <label className="block text-[11px] font-semibold text-slate-300 mb-1">
-                Destination Target Repository
-              </label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-[11px] font-semibold text-slate-300">
+                  Destination Target Repository
+                </label>
+                {selectedDestCred?.domain && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const cleanDomain = selectedDestCred.domain.replace(/^https?:\/\//, '').replace(/\/+$/, '').trim();
+                      if (srcRepo) {
+                        const cleanSrc = srcRepo.trim().replace(/^([a-z-]+:\/\/)/, '');
+                        const lastPart = cleanSrc.split('/').pop() || '';
+                        setDestRepo(lastPart ? `${cleanDomain}/${lastPart}` : cleanDomain);
+                      } else {
+                        setDestRepo(cleanDomain);
+                      }
+                    }}
+                    className="text-[10px] text-emerald-400 hover:text-emerald-300 font-mono flex items-center gap-1 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20"
+                    title="Auto-fill destination target from selected credential domain"
+                  >
+                    <Sparkles className="w-2.5 h-2.5" />
+                    <span>Use Credential Domain</span>
+                  </button>
+                )}
+              </div>
               <input
                 type="text"
                 placeholder="e.g. docker.io/myorg/nginx"
@@ -592,32 +716,184 @@ export const BatchTransfer: React.FC<Props> = ({
         </div>
       )}
 
-      {/* Advanced Execution Options */}
-      <div className="p-4 rounded-xl bg-[#131326] border border-white/[0.08] flex items-center justify-between flex-wrap gap-4 text-xs">
-        <label className="flex items-center gap-2 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={copyAllArch}
-            onChange={(e) => setCopyAllArch(e.target.checked)}
-            className="rounded accent-amber-500"
-          />
-          <span className="text-slate-300">
-            Copy All Architectures (<code className="text-amber-400 text-[10px]">--all</code>)
+      {/* Advanced Execution Options: Architecture Picker, Manifest Conversion & Concurrency */}
+      <div className="p-4 rounded-xl bg-[#131326] border border-white/[0.08] space-y-4">
+        <div className="flex items-center justify-between pb-2 border-b border-white/[0.06] flex-wrap gap-2">
+          <span className="text-xs font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
+            <Sliders className="w-4 h-4" />
+            Execution &amp; Manifest Configuration
           </span>
-        </label>
+          <span className="text-[11px] text-slate-400">Architecture, Format &amp; Performance</span>
+        </div>
 
-        <div className="flex items-center gap-2">
-          <span className="text-slate-400">Worker Concurrency:</span>
-          <select
-            value={concurrency}
-            onChange={(e) => setConcurrency(parseInt(e.target.value))}
-            className="px-2.5 py-1 rounded bg-[#0a0a14] border border-white/10 text-white text-xs font-mono"
-          >
-            <option value="1">1 Worker (Sequential)</option>
-            <option value="2">2 Concurrent Workers</option>
-            <option value="4">4 Concurrent Workers (Recommended)</option>
-            <option value="8">8 Concurrent Workers (High Speed)</option>
-          </select>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          {/* 1. Architecture / Multi-Arch Picker */}
+          <div className="space-y-2 p-3 rounded-lg bg-[#0a0a14] border border-white/5">
+            <div className="flex items-center justify-between">
+              <label className="text-[11px] font-bold text-white flex items-center gap-1.5">
+                <Cpu className="w-3.5 h-3.5 text-amber-400" />
+                Target Architecture
+              </label>
+              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-white/5 text-amber-300 border border-white/10">
+                {archSelection === 'all' ? '--all' : archSelection === 'auto' ? 'native' : archSelection}
+              </span>
+            </div>
+
+            <select
+              value={archSelection}
+              onChange={(e) => setArchSelection(e.target.value)}
+              className="w-full px-2.5 py-2 rounded-lg bg-[#131326] border border-white/10 text-amber-300 text-xs font-mono focus:border-amber-400 focus:outline-none"
+            >
+              {ARCH_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+
+            <p className="text-[10px] text-slate-400">
+              {ARCH_OPTIONS.find((o) => o.value === archSelection)?.description}
+            </p>
+
+            {/* Custom OS / Arch / Variant inputs */}
+            {archSelection === 'custom' && (
+              <div className="grid grid-cols-3 gap-1.5 pt-2 border-t border-white/5">
+                <div>
+                  <label className="block text-[10px] text-slate-400 mb-0.5">OS</label>
+                  <input
+                    type="text"
+                    value={customOs}
+                    onChange={(e) => setCustomOs(e.target.value)}
+                    placeholder="linux"
+                    className="w-full px-2 py-1 rounded bg-[#131326] border border-white/10 text-white text-xs font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] text-slate-400 mb-0.5">Arch</label>
+                  <input
+                    type="text"
+                    value={customArch}
+                    onChange={(e) => setCustomArch(e.target.value)}
+                    placeholder="amd64"
+                    className="w-full px-2 py-1 rounded bg-[#131326] border border-white/10 text-white text-xs font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] text-slate-400 mb-0.5">Variant</label>
+                  <input
+                    type="text"
+                    value={customVariant}
+                    onChange={(e) => setCustomVariant(e.target.value)}
+                    placeholder="v7"
+                    className="w-full px-2 py-1 rounded bg-[#131326] border border-white/10 text-white text-xs font-mono"
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* 2. Manifest Conversion & Digest settings */}
+          <div className="space-y-2 p-3 rounded-lg bg-[#0a0a14] border border-white/5">
+            <div className="flex items-center justify-between">
+              <label className="text-[11px] font-bold text-white flex items-center gap-1.5">
+                <Layers className="w-3.5 h-3.5 text-cyan-400" />
+                Manifest Format &amp; Conversion
+              </label>
+              {disableConversion ? (
+                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                  Preserve Source
+                </span>
+              ) : (
+                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                  Converting
+                </span>
+              )}
+            </div>
+
+            <label className="flex items-center gap-2 cursor-pointer pt-1">
+              <input
+                type="checkbox"
+                checked={disableConversion}
+                onChange={(e) => setDisableConversion(e.target.checked)}
+                className="rounded accent-emerald-500"
+              />
+              <span className="text-xs font-medium text-slate-200">
+                Disable Manifest Conversion
+              </span>
+            </label>
+
+            {!disableConversion ? (
+              <div className="space-y-1 pt-1">
+                <label className="block text-[10px] text-slate-400">Target Manifest Format</label>
+                <select
+                  value={manifestFormat}
+                  onChange={(e) => setManifestFormat(e.target.value as 'v2s2' | 'oci' | 'v2s1')}
+                  className="w-full px-2.5 py-1.5 rounded-lg bg-[#131326] border border-white/10 text-white text-xs font-mono"
+                >
+                  <option value="v2s2">Docker Schema 2 (--format=v2s2)</option>
+                  <option value="oci">OCI Image Index (--format=oci)</option>
+                  <option value="v2s1">Docker Schema 1 Legacy (--format=v2s1)</option>
+                </select>
+              </div>
+            ) : (
+              <p className="text-[10px] text-slate-400 leading-tight">
+                Preserves source manifest format as-is without re-encoding. Fixes in-toto &amp; multi-arch issues.
+              </p>
+            )}
+
+            <label className="flex items-center gap-2 cursor-pointer pt-1">
+              <input
+                type="checkbox"
+                checked={preserveDigests}
+                onChange={(e) => setPreserveDigests(e.target.checked)}
+                className="rounded accent-cyan-500"
+              />
+              <span className="text-[11px] text-slate-400">
+                Preserve Manifest Digests (<code className="text-cyan-300 text-[10px]">--preserve-digests</code>)
+              </span>
+            </label>
+          </div>
+
+          {/* 3. Concurrency & Performance */}
+          <div className="space-y-2 p-3 rounded-lg bg-[#0a0a14] border border-white/5 flex flex-col justify-between">
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-[11px] font-bold text-white flex items-center gap-1.5">
+                  <Zap className="w-3.5 h-3.5 text-amber-400" />
+                  Worker Concurrency
+                </label>
+                <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-white/5 text-amber-300 border border-white/10">
+                  {concurrency} {concurrency === 1 ? 'Worker' : 'Parallel Workers'}
+                </span>
+              </div>
+
+              <select
+                value={concurrency}
+                onChange={(e) => setConcurrency(parseInt(e.target.value))}
+                className="w-full px-2.5 py-2 rounded-lg bg-[#131326] border border-white/10 text-white text-xs font-mono"
+              >
+                <option value="1">1 Worker (Sequential Transfer)</option>
+                <option value="2">2 Concurrent Workers</option>
+                <option value="4">4 Concurrent Workers (Recommended)</option>
+                <option value="8">8 Concurrent Workers (High Speed)</option>
+              </select>
+            </div>
+
+            <p className="text-[10px] text-slate-500 leading-tight pt-2 border-t border-white/5">
+              Control the number of images copied simultaneously. Higher concurrency speeds up bulk migration across fast network connections.
+            </p>
+          </div>
+        </div>
+
+        {/* Informational callout for in-toto attestations and multi-arch compatibility */}
+        <div className="p-3 rounded-lg bg-amber-950/20 border border-amber-500/20 text-[11px] text-amber-200/90 flex items-start gap-2.5">
+          <Info className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
+          <div className="space-y-0.5">
+            <span className="font-bold text-amber-300">Multi-Arch &amp; In-Toto Attestation Compatibility:</span>
+            <p className="text-slate-300 text-[10px] leading-relaxed">
+              Official images (Alpine, Redis, Node, Postgres, Nginx) now include in-toto provenance &amp; SBOM attestation manifests (<code className="text-amber-300 font-mono text-[9px]">application/vnd.in-toto+json</code>). Keeping <strong>Manifest Conversion disabled</strong> prevents format conversion failures and seamlessly preserves all multi-arch layers and attestations.
+            </p>
+          </div>
         </div>
       </div>
 

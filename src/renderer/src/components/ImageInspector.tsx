@@ -10,7 +10,6 @@ import {
   CheckCircle2,
   Copy,
   ExternalLink,
-  Trash2,
   AlertTriangle,
   RefreshCw,
   Monitor,
@@ -58,7 +57,6 @@ export const ImageInspector: React.FC<Props> = ({
   const [activeTab, setActiveTab] = useState<'overview' | 'layers' | 'env' | 'labels' | 'tags' | 'architectures' | 'raw'>('overview');
   const [tags, setTags] = useState<string[]>([]);
   const [isFetchingTags, setIsFetchingTags] = useState(false);
-  const [isDeleting, setIsDeleting] = useState(false);
   const [tagFilter, setTagFilter] = useState('');
   const [platforms, setPlatforms] = useState<ManifestPlatform[]>([]);
 
@@ -141,22 +139,6 @@ export const ImageInspector: React.FC<Props> = ({
     }
   };
 
-  const handleDeleteImage = async () => {
-    if (!imageRef.trim()) return;
-    if (!confirm(`Are you sure you want to delete "${imageRef}" from the remote registry? This action cannot be undone.`)) return;
-
-    setIsDeleting(true);
-    try {
-      const fullRef = imageRef.includes('://') ? imageRef.trim() : `docker://${imageRef.trim()}`;
-      await (window as any).skopeoApi.deleteImage(fullRef, credId || undefined, insecure);
-      onShowToast('Image deleted successfully from registry.', true);
-    } catch (err: any) {
-      onShowToast(err.message || 'Delete failed', false);
-    } finally {
-      setIsDeleting(false);
-    }
-  };
-
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
     onShowToast('Copied to clipboard!', true);
@@ -174,7 +156,7 @@ export const ImageInspector: React.FC<Props> = ({
         <div>
           <h1 className="text-xl font-bold text-white flex items-center gap-2">
             <Search className="w-5 h-5 text-amber-400" />
-            Image & Manifest Inspector
+            Image &amp; Manifest Inspector
           </h1>
           <p className="text-xs text-slate-400 mt-1">
             Inspect remote container images across platforms without pulling them. View layers, multi-arch manifests, environment variables, labels, and tags.
@@ -255,17 +237,6 @@ export const ImageInspector: React.FC<Props> = ({
             >
               <Tag className="w-3.5 h-3.5 text-amber-400" />
               <span>{isFetchingTags ? 'Listing...' : 'List Tags'}</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={handleDeleteImage}
-              disabled={isDeleting || !imageRef.trim()}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold bg-rose-500/10 border border-rose-500/20 text-rose-400 hover:bg-rose-500/20 disabled:opacity-40 transition-colors"
-              title="Delete image from remote registry"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-              <span>{isDeleting ? 'Deleting...' : 'Delete'}</span>
             </button>
 
             <button

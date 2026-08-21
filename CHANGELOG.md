@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.2.3] - 2026-08-21
+
+### 🚀 Highlights in 1.2.3
+
+#### 1. 🏗️ Multi-Architecture Platform Picker & Manifest Conversion Controls
+- **Target Architecture Selector**: Easily choose between **All Architectures (`--all`)**, single architectures (`linux/amd64`, `linux/arm64`, `linux/arm/v7`, `linux/ppc64le`, `linux/s390x`, `linux/riscv64`, `windows/amd64`), Host Native, or custom OS/Arch/Variant configurations.
+- **Manifest Conversion Toggle**: Added an explicit toggle to disable manifest conversion (enabled by default) to preserve source manifests and prevent `Unknown media type during manifest conversion: "application/vnd.in-toto+json"` failures on modern multi-arch images with in-toto attestations.
+- **Preserve Manifest Digests**: Added support for `--preserve-digests`.
+
+#### 2. ⚡ Smart Destination Target Auto-Fill
+- **1-Click Destination Namespace**: Selecting a vault credential automatically populates the destination target prefix and repository with the credential's domain.
+- **Quick Action Fill**: Added dedicated "Use Credential Domain" helper button.
+
+#### 3. 🖥️ Window & UI Refinements
+- **Expanded Window Dimensions**: Increased default window size to 1440x940 (minimum 1080x720) for optimal viewing of all matrixes and logs.
+- **Image Inspector Cleanup**: Removed remote delete button from the Image Inspector for a streamlined, read-only inspection workflow.
+
+---
+
 ## [1.2.0] - 2026-08-21
 
 ### 🚀 Highlights in 1.2.0

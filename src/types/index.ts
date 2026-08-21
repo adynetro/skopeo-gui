@@ -152,9 +152,13 @@ export interface BatchMigrationConfig {
   selectedTags?: string[];
   imagesList?: ImageTransferPair[];
   copyAllArchitectures: boolean; // --all
+  overrideArch?: string;
+  overrideOs?: string;
+  overrideVariant?: string;
+  preserveDigests?: boolean; // --preserve-digests
   srcInsecure: boolean;
   destInsecure: boolean;
-  format?: 'v2s1' | 'v2s2' | 'oci';
+  format?: 'v2s1' | 'v2s2' | 'oci'; // if undefined, preserve source format / disable conversion
   concurrency: number;
 }
 

@@ -19,10 +19,10 @@ const cosign = new CosignService(skopeo);
 
 async function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 1240,
-    height: 840,
-    minWidth: 980,
-    minHeight: 660,
+    width: 1440,
+    height: 940,
+    minWidth: 1080,
+    minHeight: 720,
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 16, y: 16 },
     vibrancy: 'under-window',

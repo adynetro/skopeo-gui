@@ -373,6 +373,10 @@ export class SkopeoService {
       srcCred?: RegistryCredential;
       destCred?: RegistryCredential;
       allArch?: boolean;
+      overrideArch?: string;
+      overrideOs?: string;
+      overrideVariant?: string;
+      preserveDigests?: boolean;
       srcInsecure?: boolean;
       destInsecure?: boolean;
       format?: 'v2s1' | 'v2s2' | 'oci';
@@ -382,10 +386,26 @@ export class SkopeoService {
     abortSignal?: AbortSignal
   ): Promise<{ success: boolean; output: string }> {
     const bin = await this.getBinPath();
-    const args = ['copy'];
+    const args: string[] = [];
+
+    if (options.overrideOs) {
+      args.push(`--override-os=${options.overrideOs}`);
+    }
+    if (options.overrideArch) {
+      args.push(`--override-arch=${options.overrideArch}`);
+    }
+    if (options.overrideVariant) {
+      args.push(`--override-variant=${options.overrideVariant}`);
+    }
+
+    args.push('copy');
 
     if (options.allArch) {
       args.push('--all');
+    }
+
+    if (options.preserveDigests) {
+      args.push('--preserve-digests');
     }
 
     if (options.format) {
