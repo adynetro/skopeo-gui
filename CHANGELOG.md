@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.2.4] - 2026-08-21
+
+### 🔧 Improvements
+- **Silent Batch Run Start**: Prevented the bottom Terminal Logs drawer from automatically popping up when starting a batch migration run, keeping the focus entirely on the main batch view and progress bars. The logs drawer remains accessible anytime via the top bar button.
+
+---
+
 ## [1.2.3] - 2026-08-21
 
 ### 🚀 Highlights in 1.2.3

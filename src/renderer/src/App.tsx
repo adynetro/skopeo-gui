@@ -78,7 +78,6 @@ export const App: React.FC = () => {
 
   const handleStartBatch = async (config: BatchMigrationConfig) => {
     setIsBatchRunning(true);
-    setIsLogsOpen(true);
     try {
       await (window as any).skopeoApi.startBatchMigration(config);
       showToast('Batch migration finished!', true);
