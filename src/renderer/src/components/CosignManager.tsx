@@ -607,7 +607,7 @@ export const CosignManager: React.FC<Props> = ({ credentials, onShowToast }) => 
                 <input
                   type="text"
                   required
-                  placeholder="e.g. docker.io/myorg/myapp:v1.0.0, docker.io/myorg/myrepo:tag"
+                  placeholder="e.g. docker.io/myorg/myapp:v1.0.0, quay.io/myorg/myrepo:tag"
                   value={signImageRef}
                   onChange={(e) => setSignImageRef(e.target.value)}
                   className="w-full px-3 py-2 rounded-lg bg-[#0a0a14] border border-white/10 text-white text-xs font-mono focus:border-amber-400 focus:outline-none"

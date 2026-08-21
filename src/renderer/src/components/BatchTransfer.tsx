@@ -303,7 +303,7 @@ export const BatchTransfer: React.FC<Props> = ({
             Batch Image Migration
           </h1>
           <p className="text-xs text-slate-400 mt-1">
-            Batch-replicate multiple container images or tags between Oracle Cloud (OCIR), Docker Hub, GitHub Packages, or local storage.
+            Batch-replicate multiple container images or tags between Docker Hub, GitHub Container Registry, Quay.io, or local storage.
           </p>
         </div>
 

@@ -43,15 +43,6 @@ interface Props {
 
 const PRESETS: RegistryPreset[] = [
   {
-    name: 'Oracle Cloud Container Registry (OCIR)',
-    domain: 'fra.ocir.io',
-    description: 'Frankfurt / Europe Region (*.ocir.io)',
-    defaultInsecure: false,
-    defaultAnonymous: false,
-    helpText: 'Username format: <tenancy-namespace>/oracleidentitycloudservice/<user-email> or <tenancy-namespace>/<username>. Password is an OCI Auth Token generated from User Settings.',
-    docUrl: 'https://docs.oracle.com/en-us/iaas/Content/Registry/Concepts/registryoverview.htm',
-  },
-  {
     name: 'Docker Hub',
     domain: 'docker.io',
     description: 'Official Docker Hub Registry',
@@ -74,6 +65,15 @@ const PRESETS: RegistryPreset[] = [
     defaultInsecure: false,
     defaultAnonymous: true,
     helpText: 'Public images work without credentials. Private repos require username and robot token or password.',
+  },
+  {
+    name: 'Oracle Cloud Container Registry (OCIR)',
+    domain: 'fra.ocir.io',
+    description: 'Frankfurt / Europe Region (*.ocir.io)',
+    defaultInsecure: false,
+    defaultAnonymous: false,
+    helpText: 'Username format: <tenancy-namespace>/oracleidentitycloudservice/<user-email> or <tenancy-namespace>/<username>. Password is an OCI Auth Token generated from User Settings.',
+    docUrl: 'https://docs.oracle.com/en-us/iaas/Content/Registry/Concepts/registryoverview.htm',
   },
   {
     name: 'AWS Elastic Container Registry (ECR)',
@@ -601,7 +601,7 @@ export const CredentialManager: React.FC<Props> = ({
                 <input
                   type="text"
                   required
-                  placeholder="e.g. My Oracle Cloud Frankfurt Registry"
+                  placeholder="e.g. My Docker Hub Registry"
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                   className="w-full px-3 py-2 rounded-lg bg-[#0a0a14] border border-white/10 text-white text-xs focus:border-amber-400 focus:outline-none"
@@ -615,7 +615,7 @@ export const CredentialManager: React.FC<Props> = ({
                 <input
                   type="text"
                   required
-                  placeholder="e.g. fra.ocir.io, docker.io, ghcr.io"
+                  placeholder="e.g. docker.io, ghcr.io, quay.io"
                   value={formData.domain}
                   onChange={(e) => setFormData({ ...formData, domain: e.target.value })}
                   className="w-full px-3 py-2 rounded-lg bg-[#0a0a14] border border-white/10 text-white text-xs font-mono focus:border-amber-400 focus:outline-none"

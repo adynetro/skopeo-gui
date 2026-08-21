@@ -694,17 +694,6 @@ data:
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       },
-      {
-        id: 'ocir-template',
-        name: 'Oracle Cloud Container Registry (OCIR)',
-        domain: 'fra.ocir.io',
-        username: 'dockeruser',
-        password: '',
-        insecure: false,
-        isAnonymous: false,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      },
     ];
     this.persist(defaultList);
     return defaultList;

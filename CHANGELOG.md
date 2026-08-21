@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.2.5] - 2026-08-21
+
+### 🔧 Improvements & Cleanups
+- **Public Registry Preset Updates**: Standardized all provider placeholders, input examples, and default templates to standard public registries (`docker.io`, `quay.io`, `ghcr.io`).
+- **UI Refinements**: Cleaned up input placeholders and guidance across migration and inspection views.
+
+---
+
 ## [1.2.4] - 2026-08-21
 
 ### 🔧 Improvements
@@ -58,7 +66,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 🔧 Fixes & Enhancements
 - **Fix Registry Connection Test (HTTP 400 Bad Request)**: Switched the connection test to use native `skopeo login` challenge-response protocol instead of querying `/tags/list` without a repository path.
-- **Repository Path Support**: Enhanced connection testing to support both global server roots and scoped tenancy/namespace paths (e.g. Oracle Cloud OCIR `docker.io/myorg/myrepo`).
+- **Repository Path Support**: Enhanced connection testing to support both global server roots and scoped repository paths (e.g. `docker.io/myorg/myrepo` or `quay.io/myorg/myrepo`).
 - **Human-Readable Error Messages**: Clear error messages for invalid passwords, access permission issues, or network timeouts.
 
 
@@ -98,7 +106,7 @@ Skopeo GUI is a fast, native desktop interface for **[Skopeo](https://github.com
 ### ✨ Key Features & Capabilities
 
 #### 1. 🚀 Batch Container Migration & Replication
-- **Multi-Image Matrix Mode**: Move lists of source images with automatic destination repository routing (e.g. mirror images directly into Oracle Cloud OCIR tenancies, AWS ECR, or self-hosted registries).
+- **Multi-Image Matrix Mode**: Move lists of source images with automatic destination repository routing (e.g. mirror images directly into Docker Hub organizations, Quay namespaces, or AWS ECR).
 - **Tag Mode**: Discover all published tags for any remote repository and selectively batch-copy desired versions.
 - **Cross-Transport Support**:
   - `docker://` (Remote Docker / OCI registries)
