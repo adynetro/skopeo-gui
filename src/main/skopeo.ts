@@ -657,12 +657,37 @@ export class SkopeoService {
       const packages: SbomPackage[] = [];
       const seen = new Set<string>();
 
+      let osId = 'linux';
+      let osVersion = '';
+      let osName = 'Linux';
+
+      // 1. Detect OS Release across image layers
       for (const layer of manifest.layers || []) {
         const layerHash = layer.digest.replace('sha256:', '');
         const layerFile = path.join(tmpDir, layerHash);
         if (!fs.existsSync(layerFile)) continue;
 
-        // 1. Check Alpine Linux APK DB
+        try {
+          const rawOs = await execFileAsync('tar', ['-zxOf', layerFile, 'etc/os-release']).catch(() =>
+            execFileAsync('tar', ['-zxOf', layerFile, 'usr/lib/os-release']).catch(() => ({ stdout: '' }))
+          );
+          if (rawOs.stdout) {
+            const lines = rawOs.stdout.split('\n');
+            for (const l of lines) {
+              if (l.startsWith('ID=')) osId = l.replace('ID=', '').replace(/["'\r]/g, '').toLowerCase();
+              if (l.startsWith('VERSION_ID=')) osVersion = l.replace('VERSION_ID=', '').replace(/["'\r]/g, '');
+              if (l.startsWith('PRETTY_NAME=')) osName = l.replace('PRETTY_NAME=', '').replace(/["'\r]/g, '');
+            }
+          }
+        } catch {}
+      }
+
+      for (const layer of manifest.layers || []) {
+        const layerHash = layer.digest.replace('sha256:', '');
+        const layerFile = path.join(tmpDir, layerHash);
+        if (!fs.existsSync(layerFile)) continue;
+
+        // 2a. Alpine Linux APK DB
         try {
           const check = await execFileAsync('tar', ['-ztf', layerFile, 'lib/apk/db/installed']).catch(() => ({ stdout: '' }));
           if (check.stdout && check.stdout.includes('lib/apk/db/installed')) {
@@ -688,7 +713,7 @@ export class SkopeoService {
                       type: 'apk',
                       license: license || 'Open Source',
                       supplier: 'Alpine Linux',
-                      purl: `pkg:apk/alpine/${name}@${version}`,
+                      purl: `pkg:apk/alpine/${name}@${version}?distro=${osVersion || '3.23'}`,
                     });
                   }
                 }
@@ -697,7 +722,7 @@ export class SkopeoService {
           }
         } catch {}
 
-        // 2. Check Debian / Ubuntu DPKG Status
+        // 2b. Debian / Ubuntu DPKG Status
         try {
           const check = await execFileAsync('tar', ['-ztf', layerFile, 'var/lib/dpkg/status']).catch(() => ({ stdout: '' }));
           if (check.stdout && check.stdout.includes('var/lib/dpkg/status')) {
@@ -717,13 +742,14 @@ export class SkopeoService {
                   const key = `deb:${name}:${version}`;
                   if (!seen.has(key)) {
                     seen.add(key);
+                    const isUbuntu = osId.includes('ubuntu');
                     packages.push({
                       name,
                       version,
                       type: 'deb',
                       license: 'Standard Distribution License',
-                      supplier: maintainer || 'Debian / Ubuntu',
-                      purl: `pkg:deb/debian/${name}@${version}`,
+                      supplier: maintainer || (isUbuntu ? 'Ubuntu Linux' : 'Debian Linux'),
+                      purl: `pkg:deb/${isUbuntu ? 'ubuntu' : 'debian'}/${name}@${version}?distro=${osVersion || 'latest'}`,
                     });
                   }
                 }
@@ -731,6 +757,93 @@ export class SkopeoService {
             }
           }
         } catch {}
+
+        // 2c. Red Hat / CentOS / AlmaLinux / Rocky / Fedora / Amazon Linux RPM (SQLite)
+        try {
+          await execFileAsync('tar', [
+            '-zxf',
+            layerFile,
+            '-C',
+            tmpDir,
+            'var/lib/rpm/rpmdb.sqlite',
+            'usr/lib/sysimage/rpm/rpmdb.sqlite',
+          ]).catch(() => ({ stdout: '' }));
+
+          const cand1 = path.join(tmpDir, 'var/lib/rpm/rpmdb.sqlite');
+          const cand2 = path.join(tmpDir, 'usr/lib/sysimage/rpm/rpmdb.sqlite');
+          const dbPath = fs.existsSync(cand1) ? cand1 : fs.existsSync(cand2) ? cand2 : null;
+
+          if (dbPath) {
+            const { stdout: sqliteOut } = await execFileAsync(
+              '/usr/bin/sqlite3',
+              [dbPath, 'SELECT hex(blob) FROM Packages;'],
+              { maxBuffer: 100 * 1024 * 1024 }
+            ).catch(() => ({ stdout: '' }));
+
+            const hexRows = sqliteOut.split('\n').filter(Boolean);
+            for (const hex of hexRows) {
+              const buf = Buffer.from(hex, 'hex');
+              if (buf.length < 8) continue;
+              let nindex = 0, dsize = 0, indexStart = 0;
+              if (buf[0] === 0x8e && buf[1] === 0xad && buf[2] === 0xe8 && buf[3] === 0x01) {
+                nindex = buf.readUInt32BE(8);
+                dsize = buf.readUInt32BE(12);
+                indexStart = 16;
+              } else {
+                nindex = buf.readUInt32BE(0);
+                dsize = buf.readUInt32BE(4);
+                indexStart = 8;
+              }
+              const dataStart = indexStart + nindex * 16;
+              if (dataStart + dsize > buf.length) continue;
+
+              let name = '', version = '', release = '', license = '', arch = '';
+              for (let i = 0; i < nindex; i++) {
+                const entryOffset = indexStart + i * 16;
+                const tag = buf.readUInt32BE(entryOffset);
+                const dataOffset = buf.readUInt32BE(entryOffset + 8);
+                const target = dataStart + dataOffset;
+                if (target >= buf.length) continue;
+
+                const readString = () => {
+                  let end = target;
+                  while (end < buf.length && buf[end] !== 0) end++;
+                  return buf.toString('utf8', target, end);
+                };
+
+                if (tag === 1000) name = readString();
+                else if (tag === 1001) version = readString();
+                else if (tag === 1002) release = readString();
+                else if (tag === 1014) license = readString();
+                else if (tag === 1022) arch = readString();
+              }
+
+              if (name && version) {
+                const fullVer = release ? `${version}-${release}` : version;
+                const key = `rpm:${name}:${fullVer}`;
+                if (!seen.has(key)) {
+                  seen.add(key);
+                  const rpmNamespace = osId.includes('almalinux')
+                    ? 'almalinux'
+                    : osId.includes('rocky')
+                    ? 'rocky'
+                    : osId.includes('fedora')
+                    ? 'fedora'
+                    : 'redhat';
+                  packages.push({
+                    name,
+                    version: fullVer,
+                    type: 'rpm',
+                    license: license || 'Open Source',
+                    supplier: osName || 'Red Hat Enterprise Linux',
+                    purl: `pkg:rpm/${rpmNamespace}/${name}@${fullVer}?arch=${arch || 'x86_64'}`,
+                  });
+                }
+              }
+            }
+          }
+        } catch {}
+
       }
 
       return packages;
@@ -743,6 +856,7 @@ export class SkopeoService {
         }
       } catch {}
     }
+
   }
 }
 
