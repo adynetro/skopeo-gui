@@ -26,8 +26,9 @@
   ```
 
 ### Download & Install
-1. Download the latest DMG installer: [**`release/Skopeo GUI-1.0.0-arm64.dmg`**](release/Skopeo%20GUI-1.0.0-arm64.dmg)
+1. Download the latest `.dmg` installer from [**GitHub Releases**](https://github.com/adynetro/skopeo-gui/releases/latest).
 2. Open the `.dmg` file and drag **Skopeo GUI** into your **Applications** folder.
+
 
 ---
 

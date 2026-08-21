@@ -113,8 +113,8 @@ Skopeo GUI is a fast, native desktop interface for **[Skopeo](https://github.com
 
 ---
 
-### 📦 Artifacts & Packaging
-- **Standalone DMG Installer:** `release/Skopeo GUI-1.0.0-arm64.dmg`
-- **Application Bundle:** `release/mac-arm64/Skopeo GUI.app`
+### 📦 Downloads & Releases
+- **DMG & ZIP Downloads:** [**GitHub Releases**](https://github.com/adynetro/skopeo-gui/releases)
 - **Architecture:** Apple Silicon (`arm64` - M1, M2, M3, M4)
 - **macOS Compatibility:** macOS 12.0 (Monterey) and higher
+
