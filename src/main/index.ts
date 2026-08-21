@@ -172,13 +172,10 @@ function registerIpc() {
     return skopeo.inspectSbom(imageRef, cred, insecure, platform);
   });
 
-  ipcMain.handle('sbom:scan-vulns', async (_event, { imageRef, packages, dataSource }) => {
-    return vulnScanner.scanSbomPackages(imageRef, packages, dataSource);
+  ipcMain.handle('sbom:scan-vulns', async (_event, { imageRef, packages }) => {
+    return vulnScanner.scanSbomPackages(imageRef, packages);
   });
 
-  ipcMain.handle('sbom:get-engines', async () => {
-    return vulnScanner.getAvailableEngines();
-  });
 
   ipcMain.handle('reports:export-pdf', async (_event, { defaultFilename, htmlContent }) => {
     if (!mainWindow) return null;

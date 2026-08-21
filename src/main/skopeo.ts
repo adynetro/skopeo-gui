@@ -844,7 +844,107 @@ export class SkopeoService {
           }
         } catch {}
 
+        // 2d. Red Hat / CentOS / RHEL 8 RPM (Berkeley DB format)
+        try {
+
+          await execFileAsync('tar', [
+            '-zxf',
+            layerFile,
+            '-C',
+            tmpDir,
+            'var/lib/rpm/Packages',
+          ]).catch(() => ({ stdout: '' }));
+
+          const bdbPath = path.join(tmpDir, 'var/lib/rpm/Packages');
+          if (fs.existsSync(bdbPath)) {
+            const buf = fs.readFileSync(bdbPath);
+            let offset = 0;
+            while (offset <= buf.length - 32) {
+              const nindex = buf.readUInt32BE(offset);
+              const dsize = buf.readUInt32BE(offset + 4);
+              if (nindex >= 10 && nindex <= 200 && dsize >= 500 && dsize <= 200000) {
+                const indexStart = offset + 8;
+                const dataStart = indexStart + nindex * 16;
+                if (dataStart + dsize <= buf.length) {
+                  let hasName = false;
+                  let name = '', version = '', release = '', license = '', arch = '';
+                  for (let i = 0; i < nindex; i++) {
+                    const entryOffset = indexStart + i * 16;
+                    const tag = buf.readUInt32BE(entryOffset);
+                    const dataOffset = buf.readUInt32BE(entryOffset + 8);
+                    const target = dataStart + dataOffset;
+                    if (target >= buf.length || target < dataStart) continue;
+
+                    const readString = () => {
+                      let end = target;
+                      while (end < dataStart + dsize && buf[end] !== 0) end++;
+                      return buf.toString('utf8', target, end);
+                    };
+
+                    if (tag === 1000) {
+                      name = readString();
+                      hasName = /^[a-zA-Z0-9_+.-]+$/.test(name);
+                    } else if (tag === 1001) {
+                      version = readString();
+                    } else if (tag === 1002) {
+                      release = readString();
+                    } else if (tag === 1014) {
+                      license = readString();
+                    } else if (tag === 1022) {
+                      arch = readString();
+                    }
+                  }
+
+                  if (hasName && name && version) {
+                    const fullVer = release ? `${version}-${release}` : version;
+                    const key = `rpm:${name}:${fullVer}`;
+                    if (!seen.has(key)) {
+                      seen.add(key);
+                      packages.push({
+                        name,
+                        version: fullVer,
+                        type: 'rpm',
+                        license: license || 'Open Source',
+                        supplier: osName || 'Red Hat Enterprise Linux',
+                        purl: `pkg:rpm/redhat/${name}@${fullVer}?arch=${arch || 'x86_64'}`,
+                      });
+                    }
+                  }
+                }
+              }
+              offset += 2;
+            }
+          }
+        } catch {}
+
+        // 2e. .NET Runtime / SDK Framework packages
+        try {
+          const checkDotnet = await execFileAsync('tar', ['-ztf', layerFile]).catch(() => ({ stdout: '' }));
+          if (checkDotnet.stdout && (checkDotnet.stdout.includes('/dotnet/shared/') || checkDotnet.stdout.includes('.runtimeconfig.json'))) {
+            const lines = checkDotnet.stdout.split('\n');
+            for (const line of lines) {
+              const match = line.match(/dotnet\/shared\/([^/]+)\/([0-9.]+)\//);
+              if (match) {
+                const frameworkName = match[1];
+                const frameworkVersion = match[2];
+                const key = `dotnet:${frameworkName}:${frameworkVersion}`;
+                if (!seen.has(key)) {
+                  seen.add(key);
+                  packages.push({
+                    name: frameworkName,
+                    version: frameworkVersion,
+                    type: 'runtime',
+                    license: 'MIT',
+                    supplier: 'Microsoft .NET',
+                    purl: `pkg:nuget/${frameworkName}@${frameworkVersion}`,
+                  });
+                }
+              }
+            }
+          }
+        } catch {}
       }
+
 
       return packages;
     } catch {

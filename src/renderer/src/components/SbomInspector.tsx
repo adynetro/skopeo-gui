@@ -57,25 +57,12 @@ export const SbomInspector: React.FC<Props> = ({ credentials, onShowToast }) => 
   const [selectedPlatformIndex, setSelectedPlatformIndex] = useState(0); // default to linux/amd64
   const [isInspecting, setIsInspecting] = useState(false);
   const [isScanningVulns, setIsScanningVulns] = useState(false);
-  const [scannerEngine, setScannerEngine] = useState<VulnerabilityDataSource>('osv');
-  const [availableEngines, setAvailableEngines] = useState<ScannerEngineInfo[]>([]);
   const [inspection, setInspection] = useState<SbomInspection | null>(null);
   const [activeTab, setActiveTab] = useState<'security' | 'vulnerabilities' | 'packages' | 'platforms' | 'raw'>('security');
   const [packageSearch, setPackageSearch] = useState('');
   const [vulnSearch, setVulnSearch] = useState('');
   const [vulnSeverityFilter, setVulnSeverityFilter] = useState<'ALL' | 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW'>('ALL');
 
-
-  useEffect(() => {
-    (async () => {
-      try {
-        const engines = await (window as any).skopeoApi.getScannerEngines();
-        if (Array.isArray(engines)) {
-          setAvailableEngines(engines);
-        }
-      } catch {}
-    })();
-  }, []);
 
   const currentPreset = PLATFORM_PRESETS[selectedPlatformIndex];
 
@@ -134,11 +121,11 @@ export const SbomInspector: React.FC<Props> = ({ credentials, onShowToast }) => 
     try {
       const result: VulnerabilityScanResult = await (window as any).skopeoApi.scanSbomVulnerabilities(
         inspection.imageRef,
-        inspection.packages,
-        scannerEngine
+        inspection.packages
       );
       setInspection((prev) => (prev ? { ...prev, vulnerabilityScan: result } : prev));
       setActiveTab('vulnerabilities');
+
 
       const count = result.summary.total;
       if (count === 0) {
@@ -574,21 +561,6 @@ export const SbomInspector: React.FC<Props> = ({ credentials, onShowToast }) => 
 
         {inspection && (
           <div className="flex items-center gap-2 flex-wrap">
-            <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[#131326] border border-white/10">
-              <Database className="w-3.5 h-3.5 text-amber-400" />
-              <span className="text-[11px] text-slate-400">Scanner Engine:</span>
-              <select
-                value={scannerEngine}
-                onChange={(e) => setScannerEngine(e.target.value as VulnerabilityDataSource)}
-                className="bg-transparent text-xs text-white font-medium focus:outline-none cursor-pointer"
-              >
-                <option value="osv">🌐 OSV.dev + Alpine SecDB (Multi-Datasource)</option>
-                <option value="docker_scout">🐳 Docker Scout CLI (Docker Hub)</option>
-                <option value="trivy">🛡️ Trivy Engine (Aqua Security)</option>
-                <option value="grype">📦 Grype Engine (Anchore)</option>
-              </select>
-            </div>
-
             <button
               type="button"
               onClick={handleScanVulnerabilities}
@@ -597,20 +569,19 @@ export const SbomInspector: React.FC<Props> = ({ credentials, onShowToast }) => 
             >
               {isScanningVulns ? (
                 <>
-                  <RefreshCw className="w-4 h-4 animate-spin" />
-                  <span>Scanning CVEs...</span>
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  <span>Scanning Vulnerabilities...</span>
                 </>
               ) : (
                 <>
-                  <Bug className="w-4 h-4" />
-                  <span>
-                    {inspection.vulnerabilityScan ? 'Re-scan Vulnerabilities' : 'Scan Vulnerabilities (CVEs)'}
-                  </span>
+                  <Zap className="w-3.5 h-3.5" />
+                  <span>Scan for Vulnerabilities</span>
                 </>
               )}
             </button>
           </div>
         )}
+
 
       </div>
 
@@ -1012,31 +983,17 @@ export const SbomInspector: React.FC<Props> = ({ credentials, onShowToast }) => 
                     </p>
                   </div>
 
-                  {/* Engine Selection Picker */}
-                  <div className="max-w-md mx-auto p-3 rounded-lg bg-[#131326] border border-white/10 text-left space-y-2">
-                    <label className="block text-[11px] font-semibold text-slate-300">
-                      Select Vulnerability Datasource / Scanner Engine:
-                    </label>
-                    <select
-                      value={scannerEngine}
-                      onChange={(e) => setScannerEngine(e.target.value as VulnerabilityDataSource)}
-                      className="w-full px-3 py-2 rounded-lg bg-[#0a0a14] border border-white/10 text-white text-xs font-medium focus:border-amber-400 focus:outline-none"
-                    >
-                      <option value="osv">🌐 OSV.dev + Alpine SecDB (Cloud Multi-Datasource)</option>
-                      <option value="docker_scout">🐳 Docker Scout CLI (Official Docker Hub Engine)</option>
-                      <option value="trivy">🛡️ Trivy Engine (Aqua Security CLI)</option>
-                      <option value="grype">📦 Grype Engine (Anchore CLI)</option>
-                    </select>
-                    <p className="text-[10px] text-slate-400">
-                      {scannerEngine === 'docker_scout'
-                        ? 'Uses local Docker Scout to match Docker Hub vulnerability classifications.'
-                        : scannerEngine === 'trivy'
-                        ? 'Uses local Trivy CLI by Aqua Security.'
-                        : scannerEngine === 'grype'
-                        ? 'Uses local Grype CLI by Anchore.'
-                        : 'Aggregates Google/OpenSSF OSV, Alpine SecDB, Debian Security Tracker, and NVD feeds.'}
+                  {/* Engine Feature Summary Card */}
+                  <div className="max-w-md mx-auto p-3.5 rounded-lg bg-[#131326] border border-white/10 text-left space-y-1.5">
+                    <div className="flex items-center gap-2 text-emerald-300 text-xs font-semibold">
+                      <Shield className="w-4 h-4 text-emerald-400" />
+                      <span>Built-in Multi-Datasource Security Engine</span>
+                    </div>
+                    <p className="text-[11px] text-slate-400 leading-relaxed">
+                      Cross-references Red Hat Security Data, Debian Security Tracker, Ubuntu Security Notices, Alpine SecDB, NVD, and GitHub Advisory Database with precise CVSS v3.1 mathematical scoring.
                     </p>
                   </div>
+
 
                   <button
                     type="button"
@@ -1062,38 +1019,29 @@ export const SbomInspector: React.FC<Props> = ({ credentials, onShowToast }) => 
                   {/* Engine & Scope Info Banner */}
                   <div className="p-3.5 rounded-xl bg-[#131326] border border-white/10 flex items-center justify-between flex-wrap gap-3">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-semibold">
-                        <Server className="w-3.5 h-3.5" />
+                      <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs font-semibold">
+                        <Shield className="w-3.5 h-3.5 text-emerald-400" />
                         Engine: {inspection.vulnerabilityScan.scannerEngine}
                       </span>
                       <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-white/5 border border-white/10 text-slate-300 text-xs font-mono">
                         <Layers className="w-3.5 h-3.5 text-blue-400" />
-                        {inspection.packages.length} Packages Inspected ({inspection.format === 'Layer-Inspection' ? 'Image Layers: APK/DPKG' : inspection.format})
+                        {inspection.packages.length} Packages Inspected ({inspection.format === 'Layer-Inspection' ? 'Image Layers: APK/DPKG/RPM' : inspection.format})
                       </span>
                     </div>
 
                     <div className="flex items-center gap-2">
-                      <select
-                        value={scannerEngine}
-                        onChange={(e) => setScannerEngine(e.target.value as VulnerabilityDataSource)}
-                        className="px-2.5 py-1 rounded-md bg-[#0a0a14] border border-white/10 text-white text-xs font-medium focus:outline-none"
-                      >
-                        <option value="osv">🌐 OSV + Alpine SecDB</option>
-                        <option value="docker_scout">🐳 Docker Scout CLI</option>
-                        <option value="trivy">🛡️ Trivy CLI</option>
-                        <option value="grype">📦 Grype CLI</option>
-                      </select>
                       <button
                         type="button"
                         onClick={handleScanVulnerabilities}
                         disabled={isScanningVulns}
-                        className="px-3 py-1 rounded-md text-xs font-semibold bg-rose-500/20 text-rose-300 hover:bg-rose-500/30 border border-rose-500/30 flex items-center gap-1 transition-all"
+                        className="px-3.5 py-1.5 rounded-md text-xs font-semibold bg-rose-500/20 text-rose-300 hover:bg-rose-500/30 border border-rose-500/30 flex items-center gap-1.5 transition-all"
                       >
-                        <RefreshCw className={`w-3 h-3 ${isScanningVulns ? 'animate-spin' : ''}`} />
+                        <RefreshCw className={`w-3.5 h-3.5 ${isScanningVulns ? 'animate-spin' : ''}`} />
                         <span>Re-scan</span>
                       </button>
                     </div>
                   </div>
+
 
                   {/* Severity Breakdown Grid */}
                   <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
