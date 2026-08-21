@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Shield,
   ShieldCheck,
@@ -19,13 +19,18 @@ import {
   Zap,
   Activity,
   Check,
+  Layers,
+  Database,
+  Server,
 } from 'lucide-react';
 import {
   ImagePlatform,
   PackageVulnerability,
   RegistryCredential,
+  ScannerEngineInfo,
   SbomInspection,
   SbomPackage,
+  VulnerabilityDataSource,
   VulnerabilityScanResult,
 } from '../../../types';
 
@@ -52,11 +57,25 @@ export const SbomInspector: React.FC<Props> = ({ credentials, onShowToast }) => 
   const [selectedPlatformIndex, setSelectedPlatformIndex] = useState(0); // default to linux/amd64
   const [isInspecting, setIsInspecting] = useState(false);
   const [isScanningVulns, setIsScanningVulns] = useState(false);
+  const [scannerEngine, setScannerEngine] = useState<VulnerabilityDataSource>('osv');
+  const [availableEngines, setAvailableEngines] = useState<ScannerEngineInfo[]>([]);
   const [inspection, setInspection] = useState<SbomInspection | null>(null);
   const [activeTab, setActiveTab] = useState<'security' | 'vulnerabilities' | 'packages' | 'platforms' | 'raw'>('security');
   const [packageSearch, setPackageSearch] = useState('');
   const [vulnSearch, setVulnSearch] = useState('');
   const [vulnSeverityFilter, setVulnSeverityFilter] = useState<'ALL' | 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW'>('ALL');
+
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const engines = await (window as any).skopeoApi.getScannerEngines();
+        if (Array.isArray(engines)) {
+          setAvailableEngines(engines);
+        }
+      } catch {}
+    })();
+  }, []);
 
   const currentPreset = PLATFORM_PRESETS[selectedPlatformIndex];
 
@@ -115,7 +134,8 @@ export const SbomInspector: React.FC<Props> = ({ credentials, onShowToast }) => 
     try {
       const result: VulnerabilityScanResult = await (window as any).skopeoApi.scanSbomVulnerabilities(
         inspection.imageRef,
-        inspection.packages
+        inspection.packages,
+        scannerEngine
       );
       setInspection((prev) => (prev ? { ...prev, vulnerabilityScan: result } : prev));
       setActiveTab('vulnerabilities');
@@ -125,11 +145,12 @@ export const SbomInspector: React.FC<Props> = ({ credentials, onShowToast }) => 
         onShowToast('Vulnerability scan complete: No known CVEs found! 🎉', true);
       } else {
         onShowToast(
-          `Vulnerability scan complete: Found ${count} vulnerabilities (${result.summary.critical} Critical, ${result.summary.high} High).`,
+          `Vulnerability scan complete (${result.scannerEngine}): Found ${count} vulnerabilities (${result.summary.critical} Critical, ${result.summary.high} High).`,
           result.summary.critical === 0
         );
       }
     } catch (err: any) {
+
       onShowToast(err.message || 'Vulnerability scan failed', false);
     } finally {
       setIsScanningVulns(false);
@@ -139,6 +160,299 @@ export const SbomInspector: React.FC<Props> = ({ credentials, onShowToast }) => 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
     onShowToast('Copied to clipboard!', true);
+  };
+
+  const handleExportCycloneDx = () => {
+    if (!inspection) return;
+    const sanitized = (inspection.imageRef || 'image').replace(/[^a-zA-Z0-9_-]/g, '_');
+    const cycloneDxData = {
+      bomFormat: 'CycloneDX',
+      specVersion: '1.5',
+      serialNumber: `urn:uuid:${Math.random().toString(36).substring(2, 10)}-${Date.now()}`,
+      version: 1,
+      metadata: {
+        timestamp: new Date().toISOString(),
+        tools: [
+          {
+            vendor: 'Skopeo GUI',
+            name: 'Skopeo SBOM Engine',
+            version: '1.1.1',
+          },
+        ],
+        component: {
+          type: 'container',
+          name: inspection.imageRef,
+          version: inspection.digest || 'latest',
+          description: `Container image ${inspection.imageRef} (${inspection.os || 'linux'}/${inspection.architecture || 'amd64'})`,
+        },
+      },
+      components: (inspection.packages || []).map((pkg, idx) => {
+        let compType = 'library';
+        if (pkg.type === 'os' || pkg.type === 'apk' || pkg.type === 'deb' || pkg.type === 'rpm') {
+          compType = 'operating-system';
+        } else if (pkg.type === 'runtime' || pkg.type === 'application') {
+          compType = 'application';
+        }
+
+        return {
+          'bom-ref': `pkg:${idx + 1}-${pkg.name}@${pkg.version}`,
+          type: compType,
+          name: pkg.name,
+          version: pkg.version,
+          purl: pkg.purl || `pkg:generic/${pkg.name}@${pkg.version}`,
+          licenses:
+            pkg.license && pkg.license !== 'Unknown' && pkg.license !== 'NOASSERTION'
+              ? [{ license: { name: pkg.license } }]
+              : undefined,
+          supplier: pkg.supplier ? { name: pkg.supplier } : undefined,
+        };
+      }),
+      vulnerabilities: inspection.vulnerabilityScan?.vulnerabilities?.map((v) => ({
+        id: v.id,
+        source: {
+          name: v.id.startsWith('CVE-') ? 'NVD' : v.id.startsWith('GHSA-') ? 'GitHub' : 'OSV',
+          url: v.referenceUrls?.[0],
+        },
+        ratings: [
+          {
+            severity: v.severity.toLowerCase(),
+            score: v.score ? parseFloat(v.score) : undefined,
+            method: v.score?.includes('CVSS:3') ? 'CVSSv31' : v.score?.includes('CVSS:2') ? 'CVSSv2' : 'other',
+          },
+        ],
+        description: v.summary,
+        detail: v.details,
+        recommendation: v.fixedVersion ? `Upgrade to ${v.fixedVersion}` : undefined,
+        affects: [{ ref: v.packageName }],
+      })),
+    };
+
+    const blob = new Blob([JSON.stringify(cycloneDxData, null, 2)], {
+      type: 'application/json',
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `cyclonedx-sbom-${sanitized}-${inspection.architecture || 'amd64'}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    onShowToast('CycloneDX v1.5 SBOM JSON downloaded! 📦', true);
+  };
+
+  const handleExportPdfReport = async () => {
+    if (!inspection?.vulnerabilityScan) {
+      onShowToast('Run vulnerability scan first before exporting PDF report.', false);
+      return;
+    }
+
+    const scan = inspection.vulnerabilityScan;
+    const sanitized = (inspection.imageRef || 'image').replace(/[^a-zA-Z0-9_-]/g, '_');
+    const defaultFilename = `security-audit-${sanitized}-${inspection.architecture || 'amd64'}.pdf`;
+
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <title>Container Security Audit Report - ${inspection.imageRef}</title>
+        <style>
+          @page { size: A4; margin: 12mm; }
+          body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            color: #1e293b;
+            background: #ffffff;
+            line-height: 1.35;
+            font-size: 10px;
+            margin: 0;
+            padding: 0;
+          }
+          .header {
+            border-bottom: 2px solid #e2e8f0;
+            padding-bottom: 10px;
+            margin-bottom: 14px;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+          }
+          .title { font-size: 16px; font-weight: 800; color: #0f172a; margin: 0; }
+          .subtitle { font-size: 10px; color: #64748b; margin-top: 2px; }
+          .badge {
+            display: inline-block;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-weight: 700;
+            font-size: 9px;
+            text-transform: uppercase;
+          }
+          .badge-critical { background: #ffe4e6; color: #e11d48; border: 1px solid #fecdd3; }
+          .badge-high { background: #ffedd5; color: #ea580c; border: 1px solid #fed7aa; }
+          .badge-medium { background: #fef3c7; color: #d97706; border: 1px solid #fde68a; }
+          .badge-low { background: #e0f2fe; color: #0284c7; border: 1px solid #bae6fd; }
+          
+          .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 14px; }
+          .card {
+            border: 1px solid #e2e8f0;
+            border-radius: 6px;
+            padding: 6px 10px;
+            background: #f8fafc;
+          }
+          .card-title { font-size: 8.5px; font-weight: 700; text-transform: uppercase; color: #64748b; }
+          .card-value { font-size: 16px; font-weight: 800; margin-top: 1px; }
+          
+          .meta-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 14px;
+            font-size: 9.5px;
+          }
+          .meta-table th, .meta-table td {
+            padding: 4px 6px;
+            border: 1px solid #e2e8f0;
+            text-align: left;
+          }
+          .meta-table th { background: #f1f5f9; color: #475569; font-weight: 600; width: 20%; }
+          .meta-table td { font-family: monospace; }
+          
+          .table-title { font-size: 12px; font-weight: 700; margin: 14px 0 6px 0; color: #0f172a; }
+          .vuln-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 9px;
+          }
+          .vuln-table th, .vuln-table td {
+            padding: 5px 6px;
+            border: 1px solid #cbd5e1;
+            text-align: left;
+            vertical-align: top;
+          }
+          .vuln-table th {
+            background: #0f172a;
+            color: #ffffff;
+            font-weight: 700;
+            text-transform: uppercase;
+            font-size: 8.5px;
+            letter-spacing: 0.4px;
+          }
+          .vuln-table tr:nth-child(even) { background: #f8fafc; }
+          .cve-id { font-family: monospace; font-weight: 700; color: #0f172a; }
+          .pkg-name { font-family: monospace; color: #334155; }
+          .score { font-weight: 700; color: #0f172a; font-family: monospace; }
+          .fix { color: #16a34a; font-weight: 600; font-family: monospace; }
+          
+          .footer {
+            margin-top: 20px;
+            padding-top: 6px;
+            border-top: 1px solid #e2e8f0;
+            font-size: 8.5px;
+            color: #94a3b8;
+            display: flex;
+            justify-content: space-between;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <div>
+            <h1 class="title">Container Security Audit & Vulnerability Report</h1>
+            <div class="subtitle">Generated by Skopeo GUI Security Inspector • Scanner Engine: ${scan.scannerEngine}</div>
+          </div>
+          <div style="text-align: right;">
+            <span class="badge ${scan.summary.critical > 0 ? 'badge-critical' : scan.summary.high > 0 ? 'badge-high' : 'badge-low'}">
+              ${scan.summary.critical > 0 ? 'CRITICAL RISK' : scan.summary.high > 0 ? 'HIGH RISK' : 'LOW / PASS'}
+            </span>
+            <div style="font-size: 8.5px; color: #64748b; margin-top: 3px;">${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}</div>
+          </div>
+        </div>
+
+        <table class="meta-table">
+          <tr>
+            <th>Image Reference</th>
+            <td>${inspection.imageRef}</td>
+            <th>Digest</th>
+            <td>${inspection.digest || 'N/A'}</td>
+          </tr>
+          <tr>
+            <th>Target Platform</th>
+            <td>${inspection.os || 'linux'} / ${inspection.architecture || 'amd64'}</td>
+            <th>Scanned Packages</th>
+            <td>${scan.scannedPackagesCount} packages inspected (${inspection.format})</td>
+          </tr>
+          <tr>
+            <th>Cosign Signature</th>
+            <td>${inspection.hasCosignSignature ? '✓ Verified (' + (inspection.cosignSignatureTag || 'signed') + ')' : '✗ Not Signed'}</td>
+            <th>SBOM Format</th>
+            <td>${inspection.format} (${inspection.tool || 'Skopeo'})</td>
+          </tr>
+        </table>
+
+        <div class="grid">
+          <div class="card" style="border-left: 3px solid #e11d48;">
+            <div class="card-title" style="color: #e11d48;">Critical</div>
+            <div class="card-value" style="color: #e11d48;">${scan.summary.critical}</div>
+          </div>
+          <div class="card" style="border-left: 3px solid #ea580c;">
+            <div class="card-title" style="color: #ea580c;">High</div>
+            <div class="card-value" style="color: #ea580c;">${scan.summary.high}</div>
+          </div>
+          <div class="card" style="border-left: 3px solid #d97706;">
+            <div class="card-title" style="color: #d97706;">Medium</div>
+            <div class="card-value" style="color: #d97706;">${scan.summary.medium}</div>
+          </div>
+          <div class="card" style="border-left: 3px solid #0284c7;">
+            <div class="card-title" style="color: #0284c7;">Low / Total</div>
+            <div class="card-value" style="color: #0284c7;">${scan.summary.low} / ${scan.summary.total}</div>
+          </div>
+        </div>
+
+        <div class="table-title">Identified Vulnerabilities (${scan.vulnerabilities.length})</div>
+        <table class="vuln-table">
+          <thead>
+            <tr>
+              <th style="width: 65px;">Severity</th>
+              <th style="width: 110px;">Vulnerability ID</th>
+              <th style="width: 120px;">Package & Version</th>
+              <th style="width: 65px;">CVSS</th>
+              <th style="width: 90px;">Fixed In</th>
+              <th>Summary & Remediation</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${scan.vulnerabilities
+              .map(
+                (v) => `
+              <tr>
+                <td><span class="badge badge-${v.severity.toLowerCase()}">${v.severity}</span></td>
+                <td class="cve-id">${v.id}</td>
+                <td class="pkg-name"><strong>${v.packageName}</strong><br><span style="color: #64748b;">${v.packageVersion}</span></td>
+                <td class="score">${v.score || 'N/A'}</td>
+                <td class="fix">${v.fixedVersion || 'Unfixed'}</td>
+                <td>
+                  <div style="font-weight: 600; color: #1e293b;">${v.summary}</div>
+                  ${v.details ? `<div style="font-size: 8px; color: #64748b; margin-top: 2px;">${v.details.substring(0, 150)}...</div>` : ''}
+                </td>
+              </tr>
+            `
+              )
+              .join('')}
+          </tbody>
+        </table>
+
+        <div class="footer">
+          <div>Skopeo GUI • Container Security Audit Report</div>
+          <div>Confidential Security Assessment</div>
+        </div>
+      </body>
+      </html>
+    `;
+
+    try {
+      const res = await (window as any).skopeoApi.exportPdfReport(defaultFilename, htmlContent);
+      if (res && res.success) {
+        onShowToast(`Security Audit PDF Report saved to ${res.filePath}! 📕`, true);
+      }
+    } catch (err: any) {
+      onShowToast(err.message || 'Failed to export PDF report', false);
+    }
   };
 
   const handleExportJson = () => {
@@ -170,6 +484,7 @@ export const SbomInspector: React.FC<Props> = ({ credentials, onShowToast }) => 
     URL.revokeObjectURL(url);
     onShowToast('Vulnerability Report JSON downloaded!', true);
   };
+
 
   const filteredPackages = useMemo(() => {
     if (!inspection?.packages) return [];
@@ -258,7 +573,22 @@ export const SbomInspector: React.FC<Props> = ({ credentials, onShowToast }) => 
         </div>
 
         {inspection && (
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[#131326] border border-white/10">
+              <Database className="w-3.5 h-3.5 text-amber-400" />
+              <span className="text-[11px] text-slate-400">Scanner Engine:</span>
+              <select
+                value={scannerEngine}
+                onChange={(e) => setScannerEngine(e.target.value as VulnerabilityDataSource)}
+                className="bg-transparent text-xs text-white font-medium focus:outline-none cursor-pointer"
+              >
+                <option value="osv">🌐 OSV.dev + Alpine SecDB (Multi-Datasource)</option>
+                <option value="docker_scout">🐳 Docker Scout CLI (Docker Hub)</option>
+                <option value="trivy">🛡️ Trivy Engine (Aqua Security)</option>
+                <option value="grype">📦 Grype Engine (Anchore)</option>
+              </select>
+            </div>
+
             <button
               type="button"
               onClick={handleScanVulnerabilities}
@@ -281,6 +611,7 @@ export const SbomInspector: React.FC<Props> = ({ credentials, onShowToast }) => 
             </button>
           </div>
         )}
+
       </div>
 
       {/* Query Form with Target Platform Selector */}
@@ -670,21 +1001,48 @@ export const SbomInspector: React.FC<Props> = ({ credentials, onShowToast }) => 
           {activeTab === 'vulnerabilities' && (
             <div className="space-y-4">
               {!inspection.vulnerabilityScan ? (
-                <div className="p-8 rounded-xl bg-[#0a0a14] border border-white/5 text-center space-y-4">
+                <div className="p-8 rounded-xl bg-[#0a0a14] border border-white/5 text-center space-y-5">
                   <div className="w-12 h-12 rounded-full bg-rose-500/10 border border-rose-500/30 flex items-center justify-center mx-auto text-rose-400">
                     <Bug className="w-6 h-6" />
                   </div>
                   <div className="space-y-1">
-                    <h3 className="text-sm font-bold text-white">Vulnerability Scan Not Yet Run</h3>
-                    <p className="text-xs text-slate-400 max-w-md mx-auto">
-                      Scan all {inspection.packages.length} discovered SBOM packages against the Google/OpenSSF OSV database to detect CVEs, CVSS scores, and remediation fixed versions.
+                    <h3 className="text-sm font-bold text-white">Vulnerability Audit & Security Feeds</h3>
+                    <p className="text-xs text-slate-400 max-w-lg mx-auto">
+                      Scan all {inspection.packages.length} packages discovered in this image (including OS libraries and layer files) against multiple vulnerability datasources.
                     </p>
                   </div>
+
+                  {/* Engine Selection Picker */}
+                  <div className="max-w-md mx-auto p-3 rounded-lg bg-[#131326] border border-white/10 text-left space-y-2">
+                    <label className="block text-[11px] font-semibold text-slate-300">
+                      Select Vulnerability Datasource / Scanner Engine:
+                    </label>
+                    <select
+                      value={scannerEngine}
+                      onChange={(e) => setScannerEngine(e.target.value as VulnerabilityDataSource)}
+                      className="w-full px-3 py-2 rounded-lg bg-[#0a0a14] border border-white/10 text-white text-xs font-medium focus:border-amber-400 focus:outline-none"
+                    >
+                      <option value="osv">🌐 OSV.dev + Alpine SecDB (Cloud Multi-Datasource)</option>
+                      <option value="docker_scout">🐳 Docker Scout CLI (Official Docker Hub Engine)</option>
+                      <option value="trivy">🛡️ Trivy Engine (Aqua Security CLI)</option>
+                      <option value="grype">📦 Grype Engine (Anchore CLI)</option>
+                    </select>
+                    <p className="text-[10px] text-slate-400">
+                      {scannerEngine === 'docker_scout'
+                        ? 'Uses local Docker Scout to match Docker Hub vulnerability classifications.'
+                        : scannerEngine === 'trivy'
+                        ? 'Uses local Trivy CLI by Aqua Security.'
+                        : scannerEngine === 'grype'
+                        ? 'Uses local Grype CLI by Anchore.'
+                        : 'Aggregates Google/OpenSSF OSV, Alpine SecDB, Debian Security Tracker, and NVD feeds.'}
+                    </p>
+                  </div>
+
                   <button
                     type="button"
                     onClick={handleScanVulnerabilities}
                     disabled={isScanningVulns}
-                    className="px-5 py-2.5 rounded-lg text-xs font-bold bg-rose-500 text-white hover:bg-rose-600 transition-all shadow-[0_0_15px_rgba(244,63,94,0.3)] inline-flex items-center gap-2"
+                    className="px-6 py-2.5 rounded-lg text-xs font-bold bg-rose-500 text-white hover:bg-rose-600 transition-all shadow-[0_0_15px_rgba(244,63,94,0.3)] inline-flex items-center gap-2 hover:scale-[1.02]"
                   >
                     {isScanningVulns ? (
                       <>
@@ -701,6 +1059,42 @@ export const SbomInspector: React.FC<Props> = ({ credentials, onShowToast }) => 
                 </div>
               ) : (
                 <div className="space-y-4">
+                  {/* Engine & Scope Info Banner */}
+                  <div className="p-3.5 rounded-xl bg-[#131326] border border-white/10 flex items-center justify-between flex-wrap gap-3">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-semibold">
+                        <Server className="w-3.5 h-3.5" />
+                        Engine: {inspection.vulnerabilityScan.scannerEngine}
+                      </span>
+                      <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-white/5 border border-white/10 text-slate-300 text-xs font-mono">
+                        <Layers className="w-3.5 h-3.5 text-blue-400" />
+                        {inspection.packages.length} Packages Inspected ({inspection.format === 'Layer-Inspection' ? 'Image Layers: APK/DPKG' : inspection.format})
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <select
+                        value={scannerEngine}
+                        onChange={(e) => setScannerEngine(e.target.value as VulnerabilityDataSource)}
+                        className="px-2.5 py-1 rounded-md bg-[#0a0a14] border border-white/10 text-white text-xs font-medium focus:outline-none"
+                      >
+                        <option value="osv">🌐 OSV + Alpine SecDB</option>
+                        <option value="docker_scout">🐳 Docker Scout CLI</option>
+                        <option value="trivy">🛡️ Trivy CLI</option>
+                        <option value="grype">📦 Grype CLI</option>
+                      </select>
+                      <button
+                        type="button"
+                        onClick={handleScanVulnerabilities}
+                        disabled={isScanningVulns}
+                        className="px-3 py-1 rounded-md text-xs font-semibold bg-rose-500/20 text-rose-300 hover:bg-rose-500/30 border border-rose-500/30 flex items-center gap-1 transition-all"
+                      >
+                        <RefreshCw className={`w-3 h-3 ${isScanningVulns ? 'animate-spin' : ''}`} />
+                        <span>Re-scan</span>
+                      </button>
+                    </div>
+                  </div>
+
                   {/* Severity Breakdown Grid */}
                   <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
                     <div
@@ -793,7 +1187,7 @@ export const SbomInspector: React.FC<Props> = ({ credentials, onShowToast }) => 
                       ))}
                     </div>
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <div className="relative">
                         <Search className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-1/2 -translate-y-1/2" />
                         <input
@@ -801,19 +1195,38 @@ export const SbomInspector: React.FC<Props> = ({ credentials, onShowToast }) => 
                           placeholder="Search CVE ID or package..."
                           value={vulnSearch}
                           onChange={(e) => setVulnSearch(e.target.value)}
-                          className="pl-8 pr-3 py-1.5 rounded-lg bg-[#0a0a14] border border-white/10 text-white text-xs w-64 focus:border-rose-400 focus:outline-none font-mono"
+                          className="pl-8 pr-3 py-1.5 rounded-lg bg-[#0a0a14] border border-white/10 text-white text-xs w-52 focus:border-rose-400 focus:outline-none font-mono"
                         />
                       </div>
+
+                      <button
+                        onClick={handleExportPdfReport}
+                        className="px-3 py-1.5 rounded-lg text-xs font-bold bg-rose-500/20 border border-rose-500/40 text-rose-300 hover:bg-rose-500 hover:text-white flex items-center gap-1.5 transition-all shadow-[0_0_10px_rgba(244,63,94,0.2)]"
+                        title="Export Professional Security Audit PDF Report"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        <span>Export PDF Report 📕</span>
+                      </button>
+
+                      <button
+                        onClick={handleExportCycloneDx}
+                        className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-white/5 border border-white/10 text-slate-300 hover:text-white flex items-center gap-1"
+                        title="Export CycloneDX v1.5 with Vulnerability Extensions (VEX)"
+                      >
+                        <Download className="w-3.5 h-3.5 text-amber-400" />
+                        <span>CycloneDX JSON</span>
+                      </button>
 
                       <button
                         onClick={handleExportVulnReport}
                         className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-white/5 border border-white/10 text-slate-300 hover:text-white flex items-center gap-1"
                         title="Download Vulnerability JSON Report"
                       >
-                        <Download className="w-3.5 h-3.5 text-rose-400" />
-                        <span>Export Report</span>
+                        <Download className="w-3.5 h-3.5 text-blue-400" />
+                        <span>JSON</span>
                       </button>
                     </div>
+
                   </div>
 
                   {/* Vulnerability Items List */}
@@ -913,17 +1326,38 @@ export const SbomInspector: React.FC<Props> = ({ credentials, onShowToast }) => 
                 <div className="text-xs font-bold text-slate-400 uppercase tracking-wider">
                   Discovered Packages ({inspection.packages?.length || 0}) for {inspection.os || 'linux'}/{inspection.architecture || 'amd64'}
                 </div>
-                <div className="relative">
-                  <Search className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-1/2 -translate-y-1/2" />
-                  <input
-                    type="text"
-                    placeholder="Filter by name, version, type..."
-                    value={packageSearch}
-                    onChange={(e) => setPackageSearch(e.target.value)}
-                    className="pl-8 pr-3 py-1.5 rounded-lg bg-[#0a0a14] border border-white/10 text-white text-xs w-64 focus:border-amber-400 focus:outline-none font-mono"
-                  />
+                <div className="flex items-center gap-2 flex-wrap">
+                  <div className="relative">
+                    <Search className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      placeholder="Filter by name, version, type..."
+                      value={packageSearch}
+                      onChange={(e) => setPackageSearch(e.target.value)}
+                      className="pl-8 pr-3 py-1.5 rounded-lg bg-[#0a0a14] border border-white/10 text-white text-xs w-52 focus:border-amber-400 focus:outline-none font-mono"
+                    />
+                  </div>
+
+                  <button
+                    onClick={handleExportCycloneDx}
+                    className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-white/5 border border-white/10 text-slate-300 hover:text-white flex items-center gap-1"
+                    title="Export official CycloneDX v1.5 JSON SBOM"
+                  >
+                    <Download className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Export CycloneDX</span>
+                  </button>
+
+                  <button
+                    onClick={handleExportJson}
+                    className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-white/5 border border-white/10 text-slate-300 hover:text-white flex items-center gap-1"
+                    title="Export Raw SBOM JSON"
+                  >
+                    <Download className="w-3.5 h-3.5 text-blue-400" />
+                    <span>Export JSON</span>
+                  </button>
                 </div>
               </div>
+
 
               <div className="space-y-1.5 max-h-96 overflow-y-auto pr-1">
                 {filteredPackages.length === 0 ? (

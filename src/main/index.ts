@@ -172,9 +172,55 @@ function registerIpc() {
     return skopeo.inspectSbom(imageRef, cred, insecure, platform);
   });
 
-  ipcMain.handle('sbom:scan-vulns', async (_event, { imageRef, packages }) => {
-    return vulnScanner.scanSbomPackages(imageRef, packages);
+  ipcMain.handle('sbom:scan-vulns', async (_event, { imageRef, packages, dataSource }) => {
+    return vulnScanner.scanSbomPackages(imageRef, packages, dataSource);
   });
+
+  ipcMain.handle('sbom:get-engines', async () => {
+    return vulnScanner.getAvailableEngines();
+  });
+
+  ipcMain.handle('reports:export-pdf', async (_event, { defaultFilename, htmlContent }) => {
+    if (!mainWindow) return null;
+    const saveRes = await dialog.showSaveDialog(mainWindow, {
+      title: 'Export Vulnerability Security Report to PDF',
+      defaultPath: defaultFilename || 'vulnerability-report.pdf',
+      filters: [{ name: 'PDF Documents', extensions: ['pdf'] }],
+    });
+
+    if (saveRes.canceled || !saveRes.filePath) {
+      return null;
+    }
+
+    const printWin = new BrowserWindow({
+      show: false,
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true,
+      },
+    });
+
+    try {
+      await printWin.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(htmlContent)}`);
+      const pdfBuffer = await printWin.webContents.printToPDF({
+        pageSize: 'A4',
+        printBackground: true,
+        margins: {
+          top: 0.3,
+          bottom: 0.3,
+          left: 0.3,
+          right: 0.3,
+        },
+      });
+
+      fs.writeFileSync(saveRes.filePath, pdfBuffer);
+      return { success: true, filePath: saveRes.filePath };
+    } finally {
+      printWin.close();
+    }
+  });
+
+
 
   ipcMain.handle('skopeo:list-tags', async (_event, { imageRef, credId, insecure }) => {
     const allCreds = creds.getAll();

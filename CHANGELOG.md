@@ -7,12 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.2.0] - 2026-08-21
+
+### 🚀 Highlights in 1.2.0
+
+#### 1. 🛡️ Multi-Datasource & Alternative Scanner Engines
+- **Docker Scout CLI Integration**: Built-in support for Docker Scout to match Docker Hub vulnerability classifications (Critical, High, Medium, Low) exactly.
+- **Deep Layer Package Discovery**: Unpacks container layer filesystems on the fly to discover all installed OS packages (Alpine APK `/lib/apk/db/installed`, Debian/Ubuntu DPKG `/var/lib/dpkg/status`, RPM, Go binaries/modules) even when an image does not have an attached `.sbom` artifact.
+- **Multi-Engine Selector**: Switch seamlessly between **OSV.dev + Alpine SecDB (Cloud Multi-Datasource)**, **Docker Scout CLI**, **Trivy CLI (Aqua Security)**, and **Grype CLI (Anchore)** with instant re-scan capabilities.
+- **Engine Badges & Scope Metrics**: Displays active engine name and exact number of inspected packages with layer inspection tags.
+
+#### 2. 📦 CycloneDX v1.5 SBOM & VEX Exporter
+- **CycloneDX Standard Export**: Export complete Software Bill of Materials in official CycloneDX v1.5 JSON schema (`bomFormat: "CycloneDX"`, `specVersion: "1.5"`).
+- **Vulnerability Extensions (VEX)**: Embeds identified CVEs, CVSS ratings, severity levels, and remediation upgrade paths directly into the CycloneDX report.
+
+#### 3. 📕 Professional PDF Security Audit Report Exporter
+- **Publication-Ready PDF Reports**: 1-click export of executive security audit reports via native Electron `printToPDF`.
+- **Executive Summary & Risk Badges**: Highlights critical/high risks with color-coded badges, platform metadata, and signature status.
+- **Comprehensive CVE Breakdown**: Detailed table with CVE IDs, affected packages, fix versions, CVSS base scores, and remediation recommendations.
+
+---
+
 ## [1.1.1] - 2026-08-20
 
 ### 🔧 Fixes & Enhancements
 - **Fix Registry Connection Test (HTTP 400 Bad Request)**: Switched the connection test to use native `skopeo login` challenge-response protocol instead of querying `/tags/list` without a repository path.
 - **Repository Path Support**: Enhanced connection testing to support both global server roots and scoped tenancy/namespace paths (e.g. Oracle Cloud OCIR `docker.io/myorg/myrepo`).
 - **Human-Readable Error Messages**: Clear error messages for invalid passwords, access permission issues, or network timeouts.
+
 
 ---
 

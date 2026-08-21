@@ -75,6 +75,16 @@ export interface VulnerabilitySummary {
   unknown: number;
 }
 
+export type VulnerabilityDataSource = 'osv' | 'docker_scout' | 'trivy' | 'grype' | 'alpine_secdb';
+
+export interface ScannerEngineInfo {
+  id: VulnerabilityDataSource;
+  name: string;
+  isAvailable: boolean;
+  version?: string;
+  description: string;
+}
+
 export interface VulnerabilityScanResult {
   imageRef: string;
   scannedAt: string;
@@ -82,6 +92,7 @@ export interface VulnerabilityScanResult {
   summary: VulnerabilitySummary;
   vulnerabilities: PackageVulnerability[];
   scannerEngine: string;
+  dataSource?: VulnerabilityDataSource;
   error?: string;
 }
 
@@ -91,7 +102,7 @@ export interface SbomInspection {
   os?: string;
   architecture?: string;
   availablePlatforms?: ImagePlatform[];
-  format: 'SPDX' | 'CycloneDX' | 'Cosign-Attestation' | 'Labels' | 'None';
+  format: 'SPDX' | 'CycloneDX' | 'Cosign-Attestation' | 'Layer-Inspection' | 'Labels' | 'None';
   specVersion?: string;
   creationTimestamp?: string;
   tool?: string;
@@ -107,6 +118,7 @@ export interface SbomInspection {
 }
 
 export type TransportType = 'docker' | 'oci' | 'oci-archive' | 'dir' | 'docker-archive' | 'docker-daemon';
+
 
 export interface BatchItem {
   id: string;

@@ -278,7 +278,21 @@ export class SkopeoService {
         }
       }
 
-      // Fallback: If no detached OCI SBOM artifact was found, inspect labels and environment
+      // Primary layer-based discovery if no detached SBOM artifact was found
+      if (packages.length === 0) {
+        try {
+          const layerPkgs = await this.extractPackagesFromLayers(imageRef, cred, insecure, targetPlatform);
+          if (layerPkgs && layerPkgs.length > 0) {
+            packages = layerPkgs;
+            format = 'Layer-Inspection';
+            tool = 'Skopeo Layer Inspection (APK/DPKG/RPM)';
+          }
+        } catch {
+          // Proceed to labels/env fallback if layer extraction fails
+        }
+      }
+
+      // Secondary Fallback: If no detached OCI SBOM artifact was found, inspect labels and environment
       if (packages.length === 0) {
         const labels = inspectData.Labels || {};
         format = Object.keys(labels).length > 0 ? 'Labels' : 'None';
@@ -319,6 +333,7 @@ export class SkopeoService {
 
         packages = syntheticPkgs;
       }
+
 
       return {
         imageRef,
@@ -593,5 +608,142 @@ export class SkopeoService {
 
     return loginResult;
   }
+
+  public async extractPackagesFromLayers(
+    imageRef: string,
+    cred?: RegistryCredential,
+    insecure: boolean = false,
+    platform?: { os?: string; arch?: string; variant?: string }
+  ): Promise<SbomPackage[]> {
+    const bin = await this.getBinPath();
+    const tmpDir = path.join(
+      os.tmpdir(),
+      `skopeo-layers-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`
+    );
+    try {
+      fs.mkdirSync(tmpDir, { recursive: true });
+    } catch {
+      return [];
+    }
+
+    try {
+      const args = ['copy'];
+      if (platform?.os) args.push(`--override-os=${platform.os}`);
+      if (platform?.arch) args.push(`--override-arch=${platform.arch}`);
+      if (platform?.variant) args.push(`--override-variant=${platform.variant}`);
+
+      if (cred && !cred.isAnonymous && cred.username && cred.password) {
+        args.push(`--creds=${cred.username}:${cred.password}`);
+      }
+      if (insecure || (cred && cred.insecure)) {
+        args.push('--tls-verify=false');
+      }
+
+      args.push(imageRef, `dir:${tmpDir}`);
+
+      await new Promise<void>((resolve, reject) => {
+        const proc = spawn(bin, args);
+        let stderr = '';
+        proc.stderr.on('data', (d) => (stderr += d));
+        proc.on('close', (code) => {
+          if (code === 0) resolve();
+          else reject(new Error(`Layer download failed: ${stderr}`));
+        });
+      });
+
+      const manifestPath = path.join(tmpDir, 'manifest.json');
+      if (!fs.existsSync(manifestPath)) return [];
+      const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+      const packages: SbomPackage[] = [];
+      const seen = new Set<string>();
+
+      for (const layer of manifest.layers || []) {
+        const layerHash = layer.digest.replace('sha256:', '');
+        const layerFile = path.join(tmpDir, layerHash);
+        if (!fs.existsSync(layerFile)) continue;
+
+        // 1. Check Alpine Linux APK DB
+        try {
+          const check = await execFileAsync('tar', ['-ztf', layerFile, 'lib/apk/db/installed']).catch(() => ({ stdout: '' }));
+          if (check.stdout && check.stdout.includes('lib/apk/db/installed')) {
+            const raw = await execFileAsync('tar', ['-zxOf', layerFile, 'lib/apk/db/installed']).catch(() => ({ stdout: '' }));
+            if (raw.stdout) {
+              const blocks = raw.stdout.split('\n\n');
+              for (const block of blocks) {
+                const lines = block.split('\n');
+                let name = '', version = '', license = '', desc = '';
+                for (const line of lines) {
+                  if (line.startsWith('P:')) name = line.substring(2).trim();
+                  if (line.startsWith('V:')) version = line.substring(2).trim();
+                  if (line.startsWith('L:')) license = line.substring(2).trim();
+                  if (line.startsWith('T:')) desc = line.substring(2).trim();
+                }
+                if (name && version) {
+                  const key = `apk:${name}:${version}`;
+                  if (!seen.has(key)) {
+                    seen.add(key);
+                    packages.push({
+                      name,
+                      version,
+                      type: 'apk',
+                      license: license || 'Open Source',
+                      supplier: 'Alpine Linux',
+                      purl: `pkg:apk/alpine/${name}@${version}`,
+                    });
+                  }
+                }
+              }
+            }
+          }
+        } catch {}
+
+        // 2. Check Debian / Ubuntu DPKG Status
+        try {
+          const check = await execFileAsync('tar', ['-ztf', layerFile, 'var/lib/dpkg/status']).catch(() => ({ stdout: '' }));
+          if (check.stdout && check.stdout.includes('var/lib/dpkg/status')) {
+            const raw = await execFileAsync('tar', ['-zxOf', layerFile, 'var/lib/dpkg/status']).catch(() => ({ stdout: '' }));
+            if (raw.stdout) {
+              const blocks = raw.stdout.split('\n\n');
+              for (const block of blocks) {
+                const lines = block.split('\n');
+                let name = '', version = '', source = '', maintainer = '';
+                for (const line of lines) {
+                  if (line.startsWith('Package:')) name = line.replace('Package:', '').trim();
+                  if (line.startsWith('Version:')) version = line.replace('Version:', '').trim();
+                  if (line.startsWith('Source:')) source = line.replace('Source:', '').trim();
+                  if (line.startsWith('Maintainer:')) maintainer = line.replace('Maintainer:', '').trim();
+                }
+                if (name && version) {
+                  const key = `deb:${name}:${version}`;
+                  if (!seen.has(key)) {
+                    seen.add(key);
+                    packages.push({
+                      name,
+                      version,
+                      type: 'deb',
+                      license: 'Standard Distribution License',
+                      supplier: maintainer || 'Debian / Ubuntu',
+                      purl: `pkg:deb/debian/${name}@${version}`,
+                    });
+                  }
+                }
+              }
+            }
+          }
+        } catch {}
+      }
+
+      return packages;
+    } catch {
+      return [];
+    } finally {
+      try {
+        if (fs.existsSync(tmpDir)) {
+          fs.rmSync(tmpDir, { recursive: true, force: true });
+        }
+      } catch {}
+    }
+  }
 }
+
 

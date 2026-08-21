@@ -24,8 +24,13 @@ export const skopeoApi = {
     ipcRenderer.invoke('skopeo:inspect', { imageRef, credId, insecure, platform }),
   inspectSbom: (imageRef: string, credId?: string, insecure?: boolean, platform?: { os?: string; arch?: string; variant?: string }) =>
     ipcRenderer.invoke('skopeo:inspect-sbom', { imageRef, credId, insecure, platform }),
-  scanSbomVulnerabilities: (imageRef: string, packages: any[]) =>
-    ipcRenderer.invoke('sbom:scan-vulns', { imageRef, packages }),
+  scanSbomVulnerabilities: (imageRef: string, packages: any[], dataSource?: string) =>
+    ipcRenderer.invoke('sbom:scan-vulns', { imageRef, packages, dataSource }),
+  getScannerEngines: () => ipcRenderer.invoke('sbom:get-engines'),
+  exportPdfReport: (defaultFilename: string, htmlContent: string) =>
+    ipcRenderer.invoke('reports:export-pdf', { defaultFilename, htmlContent }),
+
+
   inspectRaw: (imageRef: string, credId?: string, insecure?: boolean) =>
     ipcRenderer.invoke('skopeo:inspect-raw', { imageRef, credId, insecure }),
   listTags: (imageRef: string, credId?: string, insecure?: boolean) =>
